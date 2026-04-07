@@ -42,36 +42,23 @@ def init_agent_runner(config: ProjectConfig, spec: ProjectSpec):
 # Tool 配置（按 phase 分組）
 # ==========================================
 
-# analyze + implement 共用 session 所需工具
+# 自訂工具（SDK 內建的 read/edit/search/execute 不需要列入）
+#
+# SDK 已內建：
+#   - execute (shell/Bash): git 操作、任意指令
+#   - read (Read): 讀取檔案
+#   - edit (Edit/Write): 編輯/寫入檔案
+#   - search (Grep/Glob): 文字搜尋 + 檔案搜尋
+#
+# 以下僅列出有封裝價值的自訂工具：
+
 ANALYZE_IMPLEMENT_TOOLS = [
-    # 讀取 / 搜尋
-    "list_files",
-    "grep_search",
-    "read_file",
-    # 寫入（用於寫 report 和修改檔案）
-    "write_file",
-    # 技術債
     "record_tech_debt",
-    # Shell（用於 tsc / eslint / agent-browser 等）
-    "run_command",
-    # Git workflow
-    "git_status",
-    "git_current_branch",
-    "git_create_branch",
-    "git_diff",
-    "git_commit",
 ]
 
-# test session 工具（獨立 session）
 TEST_TOOLS = [
-    "list_files",
-    "read_file",
-    "grep_search",
-    "write_file",
     "run_typescript_check",
     "run_eslint",
-    # Shell（用於 agent-browser CLI 行為驗證）
-    "run_command",
 ]
 
 
