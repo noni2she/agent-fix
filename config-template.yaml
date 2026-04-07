@@ -1,0 +1,110 @@
+# 通用專案配置模板
+# 複製此檔案並調整為您的專案設定
+
+# ============================================
+# 基本資訊
+# ============================================
+project_name: "your-project-name"
+framework: "nextjs-15-app-router" # 選項: nextjs-15-app-router, nextjs-14-pages-router, react-vite, react-cra
+language: "typescript" # typescript 或 javascript
+issue_prefix: "BUG" # Issue ID 前綴，如 BUG-1234, PROJ-5678
+
+# ============================================
+# Monorepo 配置（如果適用）
+# ============================================
+monorepo:
+  tool: "turborepo" # 選項: turborepo, yarn-workspaces, npm-workspaces, pnpm-workspaces
+  main_workspace: "main-app" # 主要 workspace 名稱
+  workspaces:
+    - "apps/*"
+    - "packages/*"
+
+# ============================================
+# 路徑配置
+# ============================================
+paths:
+  # 專案根目錄（相對於 workflow 根目錄）
+  root: "../your-project"
+
+  # 🔴 共用套件路徑（高風險，需用 Tactical Fix）
+  shared_packages:
+    - "packages/api-client/"
+    - "packages/utils/"
+
+  # 🟡 共用元件路徑（中風險，視影響範圍決定策略）
+  shared_components:
+    - "apps/main-app/src/components/"
+    - "apps/main-app/src/hooks/"
+    - "apps/main-app/src/lib/"
+
+  # 🟢 獨立模組路徑（低風險，可用 Direct Fix）
+  isolated_modules:
+    - "apps/main-app/src/app/" # Next.js App Router 頁面
+
+  # 領域邏輯路徑
+  domain_logic:
+    - "apps/main-app/src/domain/"
+    - "apps/main-app/src/stores/"
+
+# ============================================
+# 高風險關鍵字
+# ============================================
+high_risk_keywords:
+  - "auth"
+  - "login"
+  - "websocket"
+  - "store"
+  - "middleware"
+
+# ============================================
+# 品質檢查命令
+# ============================================
+quality_checks:
+  typescript:
+    command: "yarn workspace {{main_workspace}} tsc --noEmit"
+    enabled: true
+
+  eslint:
+    command: "yarn workspace {{main_workspace}} lint"
+    enabled: true
+
+  prettier:
+    command: "yarn prettier --check ."
+    enabled: true
+
+  tests:
+    command: "yarn workspace {{main_workspace}} test"
+    enabled: false # 如果有測試則設為 true
+
+# ============================================
+# 程式碼規範
+# ============================================
+coding_standards:
+  naming:
+    variables: "camelCase"
+    functions: "camelCase"
+    constants: "UPPER_CASE"
+    components: "PascalCase"
+    types: "PascalCase"
+
+  file_patterns:
+    view_controller: "*.view-controller.tsx"
+    view_model: "*.view-model.ts"
+    schema: "*.schema.ts"
+    usecase: "*.usecase.ts"
+    repository: "*.repo.ts"
+
+# ============================================
+# Skills 配置
+# ============================================
+skills:
+  directories:
+    - "../your-project/.github/skills"
+    # 可加入多個 skills 目錄
+
+# ============================================
+# 開發伺服器配置（用於行為驗證）
+# ============================================
+dev_server:
+  port: 3001
+  command: null # 如果需要自訂啟動命令，可在此指定

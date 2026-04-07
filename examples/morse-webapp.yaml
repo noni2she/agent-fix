@@ -1,0 +1,105 @@
+# Morse WebApp 專案配置
+# 這是從原始 morse-webapp-app-spec.json 轉換而來的配置
+
+# ============================================
+# 基本資訊
+# ============================================
+project_name: "morse-webapp"
+framework: "nextjs-15-app-router"
+language: "typescript"
+issue_prefix: "MORSE"
+
+# ============================================
+# Monorepo 配置
+# ============================================
+monorepo:
+  tool: "turborepo"
+  main_workspace: "morse-web"
+  workspaces:
+    - "apps/*"
+    - "packages/*"
+
+# ============================================
+# 路徑配置
+# ============================================
+paths:
+  root: "../morse-webapp"
+
+  shared_packages:
+    - "packages/api-client/"
+    - "packages/websocket/"
+
+  shared_components:
+    - "apps/morse-web/src/components/"
+    - "apps/morse-web/src/hooks/"
+    - "apps/morse-web/src/lib/"
+
+  isolated_modules:
+    - "apps/morse-web/src/app/"
+
+  domain_logic:
+    - "apps/morse-web/src/domain/"
+    - "apps/morse-web/src/stores/"
+
+# ============================================
+# 高風險關鍵字
+# ============================================
+high_risk_keywords:
+  - "auth"
+  - "login"
+  - "websocket"
+  - "store"
+  - "zustand"
+  - "middleware"
+
+# ============================================
+# 品質檢查命令
+# ============================================
+quality_checks:
+  typescript:
+    command: "yarn workspace morse-web tsc --noEmit"
+    enabled: true
+
+  eslint:
+    command: "yarn workspace morse-web lint"
+    enabled: true
+
+  prettier:
+    command: "yarn prettier --check ."
+    enabled: true
+
+  tests:
+    command: "yarn workspace morse-web test"
+    enabled: false
+
+# ============================================
+# 程式碼規範
+# ============================================
+coding_standards:
+  naming:
+    variables: "camelCase"
+    functions: "camelCase"
+    constants: "UPPER_CASE"
+    components: "PascalCase"
+    types: "PascalCase"
+
+  file_patterns:
+    view_controller: "*.view-controller.tsx"
+    view_model: "*.view-model.ts"
+    schema: "*.schema.ts"
+    usecase: "*.usecase.ts"
+    repository: "*.repo.ts"
+
+# ============================================
+# Skills 配置
+# ============================================
+skills:
+  directories:
+    - "../morse-webapp/.github/skills"
+
+# ============================================
+# 開發伺服器配置
+# ============================================
+dev_server:
+  port: 3001
+  command: null

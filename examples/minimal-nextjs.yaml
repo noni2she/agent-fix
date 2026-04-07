@@ -1,0 +1,90 @@
+# 最小 Next.js 專案配置範例
+# 適用於單一 Next.js 專案（非 monorepo）
+
+# ============================================
+# 基本資訊
+# ============================================
+project_name: "my-nextjs-app"
+framework: "nextjs-15-app-router"
+language: "typescript"
+issue_prefix: "BUG"
+
+# ============================================
+# Monorepo 配置（非 monorepo 則設為 null）
+# ============================================
+monorepo: null
+
+# ============================================
+# 路徑配置
+# ============================================
+paths:
+  root: "../my-nextjs-app"
+
+  shared_packages: []
+
+  shared_components:
+    - "src/components/"
+    - "src/hooks/"
+    - "src/lib/"
+
+  isolated_modules:
+    - "src/app/"
+
+  domain_logic:
+    - "src/services/"
+    - "src/stores/"
+
+# ============================================
+# 高風險關鍵字
+# ============================================
+high_risk_keywords:
+  - "auth"
+  - "api"
+  - "middleware"
+
+# ============================================
+# 品質檢查命令（單一專案使用直接命令）
+# ============================================
+quality_checks:
+  typescript:
+    command: "npm run type-check"
+    enabled: true
+
+  eslint:
+    command: "npm run lint"
+    enabled: true
+
+  prettier:
+    command: "npm run format:check"
+    enabled: false
+
+  tests:
+    command: "npm test"
+    enabled: false
+
+# ============================================
+# 程式碼規範
+# ============================================
+coding_standards:
+  naming:
+    variables: "camelCase"
+    functions: "camelCase"
+    constants: "UPPER_CASE"
+    components: "PascalCase"
+    types: "PascalCase"
+
+  file_patterns: {}
+
+# ============================================
+# Skills 配置
+# ============================================
+skills:
+  directories:
+    - "../my-nextjs-app/.github/skills"
+
+# ============================================
+# 開發伺服器配置
+# ============================================
+dev_server:
+  port: 3000
+  command: "npm run dev"
