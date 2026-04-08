@@ -11,13 +11,10 @@
 git clone <repository-url>
 cd bugfix-workflow
 
-# 2. 安裝依賴
-pip install -r requirements.txt
-# 或使用
-python3 cli.py check-deps --fix
-
-# 3. 設定執行權限
-chmod +x cli.py
+# 2. 安裝依賴（選擇 SDK）
+uv sync --extra copilot   # GitHub Copilot（預設）
+uv sync --extra claude    # Anthropic Claude
+uv sync --extra openai    # OpenAI Agents
 ```
 
 ## 可用命令
