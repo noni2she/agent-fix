@@ -1,267 +1,176 @@
 # Bugfix Workflow
 
-通用 AI Bug 修復工作流程引擎，支援 Next.js + Monorepo 專案的自動化 Bug 分析與修復。
+> 通用 AI Bug 修復工作流程引擎 — Skill-Based，支援 Copilot / Claude / OpenAI SDK。
 
-## ✨ 特色
+## Features
 
-- **配置驅動**：使用 YAML 配置檔案定義專案結構，無硬編碼
-- **通用架構**：支援多種 Next.js + Monorepo 專案（Turborepo, Yarn Workspaces 等）
-- **AI 驅動**：整合 GitHub Copilot + LangGraph 進行智能分析與修復
-- **嚴格驗證**：使用 Pydantic 確保 Agent 輸出品質
-- **行為驗證**：內建 Playwright 支援端到端驗證
+- **配置驅動** — 使用 YAML 定義專案結構，支援任意 Next.js + Monorepo 專案
+- **Skill-Based 架構** — 以 SKILL.md 定義行為，流程邏輯與專案細節分離
+- **多 SDK 支援** — GitHub Copilot / Anthropic Claude / OpenAI Agents（一行切換）
+- **動態 Project Context** — 從 config.yaml 生成專案 context，注入每個 phase
+- **Smart Retry** — 測試失敗自動回到 implement 重修（最多 3 次）
+- **Token 優化** — analyze + implement 共用 session，test 獨立 session
 
-## 🚀 快速開始
+## Architecture
 
-### 方式一：使用 CLI 工具（推薦）
+```
+bugfix-workflow/
+├── main.py                    # Workflow 主入口（Python loop）
+├── cli.py                     # CLI 工具（bfw run / init / validate）
+├── config-template.yaml       # 專案配置範本
+├── examples/                  # 配置範例
+│   ├── morse-webapp.yaml      # Turborepo + Yarn Workspace
+│   └── minimal-nextjs.yaml   # 單一 Next.js 專案
+├── engine/
+│   ├── config.py              # ProjectConfig（Pydantic YAML 驗證）
+│   ├── project_spec.py        # ProjectSpec（TACTICAL 判斷邏輯）
+│   ├── agent_runner.py        # Session 管理，透過 adapters 操作 SDK
+│   ├── skill_loader.py        # 讀取 SKILL.md（frontmatter + body）
+│   ├── tools.py               # 自訂工具（tsc/eslint check + tech debt）
+│   ├── adapters/
+│   │   ├── base.py            # AgentEvent / AgentSession / AgentAdapter ABC
+│   │   ├── copilot_adapter.py # GitHub Copilot SDK
+│   │   ├── claude_adapter.py  # Anthropic Claude SDK
+│   │   └── openai_adapter.py  # OpenAI Agents SDK
+│   └── __init__.py
+├── skills/                    # 通用 bugfix skills（流程邏輯）
+│   ├── bugfix-analyze/SKILL.md
+│   ├── bugfix-implement/SKILL.md
+│   └── bugfix-test/SKILL.md
+└── issues/
+    ├── TEMPLATE.json          # Issue 報告範本
+    ├── sources/               # Bug 報告 JSON（輸入）
+    └── reports/<issue-id>/    # 各 Phase 報告 Markdown（輸出）
+```
+
+### Workflow
+
+```
+analyze ──→ implement ──→ test ──→ PASS → done
+  (共用 session)           │
+                          FAIL
+                           │
+                    implement-retry ──→ test（最多 3 次）
+```
+
+### Project Context 生成
+
+```
+config.yaml → load_project_context() → 動態生成 Markdown
+                ↓
+每個 phase prompt = project_context + generic_skill_body
+```
+
+## Quick Start
+
+### 安裝
 
 ```bash
-# 1. 檢查並安裝依賴
-python3 cli.py check-deps --fix
+# 安裝 uv（推薦）
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 2. 初始化專案配置
-python3 cli.py init \
+# 安裝（選擇 SDK）
+uv sync --extra copilot   # GitHub Copilot（預設）
+uv sync --extra claude    # Anthropic Claude
+uv sync --extra openai    # OpenAI Agents
+uv sync --extra all       # 全部安裝
+```
+
+### 設定專案
+
+```bash
+# 初始化配置
+python cli.py init \
   --project-name my-project \
   --project-root /path/to/project \
   --workspace web
 
-# 3. 驗證配置
-python3 cli.py validate ./config.yaml
+# 或直接複製範本
+cp config-template.yaml config/my-project.yaml
+# 編輯 config/my-project.yaml
 
-# 4. 設定環境變數
-export PROJECT_CONFIG=./config.yaml
-
-# 5. 準備 Bug 報告
-cp issues/TEMPLATE.json issues/sources/BUG-001.json
-vim issues/sources/BUG-001.json
-
-# 6. 執行修復
-python3 cli.py run BUG-001
+# 驗證配置
+python cli.py validate config/my-project.yaml
 ```
 
-### 方式二：手動設定
+### 執行修復
 
 ```bash
-# 1. 安裝相依套件
-pip install -e .
-playwright install chromium
+# 設定環境
+cp .env.example .env
+# 編輯 .env：PROJECT_CONFIG, SDK_ADAPTER
 
-# 2. 複製並編輯配置檔案
-cp config-template.yaml config/my-project.yaml
-vim config/my-project.yaml
-
-# 3. 配置環境變數
-export PROJECT_CONFIG=./config/my-project.yaml
-
-# 4. 準備 Bug 報告
+# 建立 Bug 報告
 cp issues/TEMPLATE.json issues/sources/BUG-001.json
-vim issues/sources/BUG-001.json
 
-# 5. 執行工作流程
+# 執行
 python main.py BUG-001
+# 或用 CLI
+python cli.py run BUG-001
 ```
 
-### CLI 工具詳細說明
+### 切換 SDK
 
-詳見 [CLI 使用指南](docs/CLI_USAGE.md)
-
-## 📁 專案結構
-
-```
-bugfix-workflow/
-├── cli.py                       # CLI 工具（新）
-├── main.py                      # 主程式入口
-├── config-template.yaml         # 配置範本
-├── .env.example                 # 環境變數範本
-├── examples/                    # 配置範例
-│   ├── morse-webapp.yaml        # Turborepo 範例
-│   └── minimal-nextjs.yaml      # 單一專案範例
-├── engine/                      # 核心引擎
-│   ├── config.py                # 配置系統（通用化）
-│   ├── project_spec.py          # 專案規格（通用化）
-│   ├── models.py                # 資料模型
-│   ├── validators.py            # 驗證器
-│   ├── tools.py                 # 工具函式（參數化）
-│   ├── tools_behavior_validation.py  # 行為驗證工具（參數化）
-│   └── agent_runner.py          # Agent 執行器（通用化）
-├── specs/agents/                # Agent 規格（通用化）
-│   ├── analyst.md               # 分析師
-│   ├── engineer.md              # 工程師
-│   └── tester.md                # 測試員
-├── issues/                      # Bug 報告
-│   ├── TEMPLATE.json            # 報告範本
-│   ├── sources/                 # 原始報告
-│   └── reports/                 # 產生的報告
-└── docs/                        # 文檔
-    └── CLI_USAGE.md             # CLI 使用指南
+```bash
+# 只需改一個環境變數
+export SDK_ADAPTER=claude   # 切換到 Anthropic Claude
+export SDK_ADAPTER=openai   # 切換到 OpenAI Agents
+export SDK_ADAPTER=copilot  # 切換回 GitHub Copilot（預設）
 ```
 
-## ⚙️ 配置說明
+## Configuration
 
-### 最小配置範例
+### config.yaml 範例
 
 ```yaml
 project_name: "my-project"
 framework: "nextjs-15-app-router"
-language: "typescript"
 issue_prefix: "BUG"
 
 paths:
   root: "../my-project"
-  shared_components:
-    - "src/components/"
-  isolated_modules:
-    - "src/app/"
+  shared_packages: ["packages/"]
+  shared_components: ["apps/web/src/components/"]
+  isolated_modules: ["apps/web/src/app/"]
+
+high_risk_keywords: ["auth", "store", "websocket"]
 
 quality_checks:
   typescript:
-    command: "npm run type-check"
-    enabled: true
+    command: "yarn workspace web tsc --noEmit"
   eslint:
-    command: "npm run lint"
-    enabled: true
-```
+    command: "yarn workspace web lint"
 
-### 完整配置選項
-
-請參考 [config-template.yaml](config-template.yaml) 查看所有可用選項。
-
-## 🔧 使用指南
-
-### Analyst（分析師）
-
-自動分析 Bug 的根本原因、影響範圍和修復策略。
-
-**輸出**：
-
-- 根本原因檔案和行號
-- 影響範圍評估
-- 建議修復策略（Direct/Tactical）
-
-### Engineer（工程師）
-
-根據 Analyst 的分析執行修復，並遵循專案規範。
-
-**功能**：
-
-- 自動建立 Git 分支
-- 修改程式碼
-- 提交變更
-
-### Tester（測試員）
-
-驗證修復是否正確，包含靜態檢查和行為驗證。
-
-**檢查項目**：
-
-- TypeScript 型別檢查
-- ESLint 程式碼檢查
-- 策略遵守檢查
-- 行為驗證（可選，使用 Playwright）
-
-## 🎯 支援的專案類型
-
-### 目前支援
-
-- ✅ Next.js 15 App Router + Turborepo
-- ✅ Next.js 14/13 + Yarn Workspaces
-- ✅ Next.js 單一專案
-
-### 規劃支援
-
-- 🔄 React + Vite + Monorepo
-- 🔄 Vue 3 + Monorepo
-- 🔄 其他前端框架
-
-## 📊 自訂化
-
-### 1. 擴展工具函式
-
-在 `engine/tools.py` 中新增工具函式，並註冊到 `TOOL_MAP`。
-
-### 2. 自訂 Agent 規格
-
-編輯 `specs/agents/*.md` 檔案調整 Agent 行為。
-
-### 3. 新增 Skills
-
-在專案的 `.github/skills/` 目錄新增 skill，並在配置中引用：
-
-```yaml
 skills:
-  directories:
-    - "../my-project/.github/skills"
+  directories: []  # 留空使用內建 skills/
+
+monorepo:
+  tool: "yarn-workspaces"
+  main_workspace: "web"
 ```
 
-## 🧪 測試
+詳見 [config-template.yaml](config-template.yaml) 查看所有選項。
 
-````bash
-# 執行所有測試
-pytest
+## Custom Tools
 
-# 執行特定測試
-pytest tests/test_config.py
-� CLI 命令
+| 工具 | 封裝價值 |
+|------|---------|
+| `run_typescript_check` | 讀 config 指令 + timeout + 錯誤摘要 |
+| `run_eslint` | 讀 config 指令 + timeout + warning/error 判斷 |
+| `record_tech_debt` | JSON 持久化 |
 
-### `init` - 初始化專案配置
-
-```bash
-python3 cli.py init \
-  --project-name my-app \
-  --project-root /path/to/project \
-  --workspace web \
-  --issue-prefix BUG
-````
-
-### `validate` - 驗證配置檔案
+## Testing
 
 ```bash
-python3 cli.py validate ./config.yaml
-python3 cli.py validate ./config.yaml --strict
+uv run pytest
 ```
 
-### `check-deps` - 檢查依賴套件
+## Roadmap
 
-```bash
-python3 cli.py check-deps
-python3 cli.py check-deps --fix
-```
-
-### `run` - 執行 Bug 修復流程
-
-```bash
-python3 cli.py run BUG-001
-python3 cli.py run BUG-001 --config ./config.yaml
-```
-
-詳見 **[CLI 使用指南](docs/CLI_USAGE.md)** 了解更多。
-
-## 📚 文檔
-
-- **[CLI 使用指南](docs/CLI_USAGE.md)** - 詳細的 CLI 工具使用說明
-- **[快速開始指南](QUICK_START.md)** - 5 分鐘快速上手
-- **[配置範本](config-template.yaml)** - 完整的配置選項說明
-
-## 📝 變更日誌
-
-### v1.0.0 (2026-02-04)
-
-**重大更新：通用化重構完成**
-
-- ✨ **新功能：CLI 工具** - 提供 init, validate, check-deps, run 命令
-- ✅ **配置驅動架構** - YAML 配置系統，無硬編碼
-- ✅ **支援 Next.js + Monorepo** - Turborepo, Yarn Workspaces 等
-- ✅ **工具參數化** - 所有路徑和設定從配置讀取
-- ✅ **Agent Specs 通用化** - 移除專案特定範例
-- ✅ **完整文檔** - CLI 使用指南與快速開始
-
-## 📄 授權
-
-MIT License - 詳見 [LICENSE](LICENSE)
-
-## 💬 支援
-
-有問題或建議？請開 Issue 或聯繫維護者。
+- [ ] 通用 skills 在不同專案架構下的適用性驗證
+- [ ] Plugin 格式發佈（Claude Code marketplace）
 
 ---
 
-**Note**: 本專案從 `ai-bugfix-workflow` 重構而來，專注於通用性和可維護性。
+**Version**: v3.1.0
+**License**: MIT

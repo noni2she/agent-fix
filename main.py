@@ -1,9 +1,12 @@
 # bugfix-workflow/main.py
 """
-Bugfix Workflow v3.0 — Skill-Based (Universal)
-3 Agents (LangGraph) → 1 Agent + 3 Skills (Python loop)
+Bugfix Workflow v3.1 — Skill-Based (Universal)
 
-Skills 路徑由 config.yaml 的 skills.directories 配置（可指向任意 skills 目錄）
+Skills 架構：
+  - 通用 skills：bugfix-workflow/skills/（流程邏輯，不含專案細節）
+  - 專案 context：由 config.yaml 動態生成，注入每個 phase prompt
+  - 抽換 SDK：export SDK_ADAPTER=copilot|claude|openai
+
 流程: bugfix-analyze → bugfix-implement → bugfix-test (retry ≤3)
 Token 優化:
   - analyze + implement 共用 session（保留 file-read context）
@@ -27,7 +30,7 @@ from engine import (
 )
 from engine.skill_loader import load_skill
 from engine.agent_runner import (
-    create_copilot_session,
+    create_session,
     run_in_session,
     setup_sdk_error_silencing,
     ANALYZE_IMPLEMENT_TOOLS,
@@ -42,7 +45,7 @@ load_dotenv()
 
 try:
     print("\n" + "="*60)
-    print("🚀 Bugfix Workflow v3.0 — Skill-Based")
+    print("🚀 Bugfix Workflow v3.1 — Skill-Based")
     print("="*60)
 
     PROJECT_CONFIG = load_config_from_env()
@@ -50,17 +53,8 @@ try:
     PROJECT_ROOT = PROJECT_CONFIG.get_project_root()
     ISSUE_PREFIX = PROJECT_CONFIG.issue_prefix
 
-    # Skills 目錄（取第一個配置的目錄）
-    skills_dirs = PROJECT_CONFIG.skills.directories
-    if not skills_dirs:
-        raise ConfigurationError(
-            "config.skills.directories is required.\n"
-            "Example:\n"
-            "  skills:\n"
-            "    directories:\n"
-            "      - ../morse-webapp/skills"
-        )
-    SKILLS_DIR = Path(skills_dirs[0]).resolve()
+    # 通用 skills 目錄（本地，流程邏輯）
+    SKILLS_DIR = Path("skills").resolve()
 
     print(f"  ✅ Project: {PROJECT_CONFIG.project_name}")
     print(f"  ✅ Framework: {PROJECT_CONFIG.framework}")
@@ -95,11 +89,84 @@ REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ==========================================
+# Project Context 生成（從 config.yaml 動態生成）
+# ==========================================
+
+def load_project_context() -> str:
+    """
+    從 ProjectConfig 動態生成專案 context，注入每個 phase prompt 開頭。
+
+    bugfix-workflow（通用版）以 config.yaml 驅動，
+    不依賴固定的 morse-project-context SKILL.md。
+    """
+    cfg = PROJECT_CONFIG
+
+    # 指令區塊
+    ts_cmd = cfg.quality_checks.typescript.command
+    lint_cmd = cfg.quality_checks.eslint.command
+    test_cmd = cfg.quality_checks.tests.command if cfg.quality_checks.tests else None
+    dev_cmd = cfg.dev_server.get("command") if cfg.dev_server else None
+    dev_port = cfg.dev_server.get("port", 3000) if cfg.dev_server else 3000
+
+    monorepo_info = (
+        f"- Monorepo: {cfg.monorepo.tool} (workspace: {cfg.monorepo.main_workspace})"
+        if cfg.monorepo else "- Single project"
+    )
+
+    # TACTICAL 判斷條件
+    tactical_rows = []
+    for p in cfg.paths.shared_packages:
+        tactical_rows.append(f"| Path in `{p}` | **TACTICAL** | Shared package |")
+    for p in cfg.paths.shared_components:
+        tactical_rows.append(f"| Path in `{p}`, no customization props | **TACTICAL** | Shared component |")
+    for k in cfg.high_risk_keywords:
+        tactical_rows.append(f"| Path contains `{k}` | **TACTICAL** | High-risk module |")
+    tactical_rows.append("| Other | **DIRECT** | Isolated module |")
+    tactical_table = "\n".join(tactical_rows)
+
+    return f"""## Project Context
+
+**Project**: {cfg.project_name} ({cfg.framework})
+**Root**: {PROJECT_ROOT}
+
+### Commands
+
+```bash
+# TypeScript check
+{ts_cmd}
+
+# ESLint
+{lint_cmd}
+{f'# Tests{chr(10)}{test_cmd}' if test_cmd else ''}
+{f'# Dev server{chr(10)}{dev_cmd}' if dev_cmd else ''}
+```
+
+Dev server URL: http://localhost:{dev_port}
+
+### TACTICAL Fix Criteria
+
+| Condition | Strategy | Reason |
+|-----------|----------|--------|
+{tactical_table}
+
+### Project Structure
+
+{monorepo_info}
+- Shared packages: {', '.join(cfg.paths.shared_packages) or 'none'}
+- Shared components: {', '.join(cfg.paths.shared_components) or 'none'}
+- Isolated modules: {', '.join(cfg.paths.isolated_modules) or 'none'}
+{f'- Domain logic: {chr(44).join(cfg.paths.domain_logic)}' if cfg.paths.domain_logic else ''}
+
+---
+"""
+
+
+# ==========================================
 # Issue 載入
 # ==========================================
 
 def load_issue_report(issue_id: str) -> dict:
-    """載入 Bug 報告 (從 issues/sources/<id>.json)"""
+    """載入 Bug 報告（從 issues/sources/<id>.json）"""
     bug_file = ISSUES_DIR / f"{issue_id}.json"
     if not bug_file.exists():
         raise FileNotFoundError(
@@ -115,7 +182,6 @@ def load_issue_report(issue_id: str) -> dict:
 # ==========================================
 
 def read_analyze_status(issue_id: str) -> str:
-    """讀取 analyze.md，回傳 'confirmed' 或 'need_more_info'"""
     report = REPORT_DIR / issue_id / "analyze.md"
     if not report.exists():
         return "missing"
@@ -129,7 +195,6 @@ def read_analyze_status(issue_id: str) -> str:
 
 
 def read_test_verdict(issue_id: str, retry: int = 0) -> str:
-    """讀取 test.md (or test-retry-N.md)，回傳 'PASS' 或 'FAIL'"""
     filename = "test.md" if retry == 0 else f"test-retry-{retry}.md"
     report = REPORT_DIR / issue_id / filename
     if not report.exists():
@@ -144,11 +209,7 @@ def read_test_verdict(issue_id: str, retry: int = 0) -> str:
 
 
 def read_report(issue_id: str, report_type: str, retry: int = 0) -> str:
-    """讀取報告內容（傳給後續 skill 作為 context）"""
-    if report_type == "test" and retry > 0:
-        filename = f"test-retry-{retry}.md"
-    else:
-        filename = f"{report_type}.md"
+    filename = f"test-retry-{retry}.md" if report_type == "test" and retry > 0 else f"{report_type}.md"
     report = REPORT_DIR / issue_id / filename
     return report.read_text(encoding='utf-8') if report.exists() else f"(report not found: {filename})"
 
@@ -167,13 +228,14 @@ async def run_workflow(issue_id: str):
     issue_report = load_issue_report(issue_id)
     issue_json = json.dumps(issue_report, ensure_ascii=False, indent=2)
 
-    # 載入 skills
+    # 載入通用 skills + 動態生成專案 context
     _, analyze_body = load_skill("bugfix-analyze", SKILLS_DIR)
     _, implement_body = load_skill("bugfix-implement", SKILLS_DIR)
     _, test_body = load_skill("bugfix-test", SKILLS_DIR)
+    project_context = load_project_context()
 
     print(f"\n{'='*60}")
-    print(f"  Bugfix Workflow v3.0 (Skill-Based)")
+    print(f"  Bugfix Workflow v3.1 (Skill-Based)")
     print(f"  Project: {PROJECT_CONFIG.project_name}")
     print(f"  Issue: {issue_id}")
     print(f"{'='*60}")
@@ -182,7 +244,7 @@ async def run_workflow(issue_id: str):
     # 建立主 session（analyze + implement 共用）
     # ----------------------------------------
     print("\n🔧 建立主 session (analyze + implement)...")
-    _, main_session = await create_copilot_session(ANALYZE_IMPLEMENT_TOOLS)
+    _, main_session = await create_session(ANALYZE_IMPLEMENT_TOOLS)
 
     # ----------------------------------------
     # Phase 1: bugfix-analyze
@@ -191,7 +253,7 @@ async def run_workflow(issue_id: str):
     print("  Phase 1 / bugfix-analyze")
     print(f"{'─'*60}")
 
-    analyze_msg = f"""{analyze_body}
+    analyze_msg = f"""{project_context}{analyze_body}
 
 ---
 
@@ -200,7 +262,6 @@ Task: Analyze the following issue.
 Issue report:
 {issue_json}
 
-Project: {PROJECT_CONFIG.project_name} ({PROJECT_CONFIG.framework})
 Project root: {PROJECT_ROOT}
 """
     await run_in_session(main_session, "analyze", analyze_msg, max_tool_calls=50)
@@ -228,14 +289,12 @@ You've completed the analysis phase above. The code investigation is in this ses
 ---
 
 Task: Implement the fix for issue {issue_id}.
-
-Project: {PROJECT_CONFIG.project_name}
 Project root: {PROJECT_ROOT}
-TypeScript check: {PROJECT_CONFIG.quality_checks.typescript.command}
-ESLint check: {PROJECT_CONFIG.quality_checks.eslint.command}
 
 Read issues/reports/{issue_id}/analyze.md for the fix strategy and root cause.
-"""
+
+Project Context (commands & paths):
+{project_context}"""
     await run_in_session(main_session, "implement", implement_msg, max_tool_calls=30)
 
     # ----------------------------------------
@@ -248,7 +307,7 @@ Read issues/reports/{issue_id}/analyze.md for the fix strategy and root cause.
         print(f"  {label}")
         print(f"{'─'*60}")
 
-        _, test_session = await create_copilot_session(TEST_TOOLS)
+        _, test_session = await create_session(TEST_TOOLS)
 
         retry_section = ""
         if retry > 0:
@@ -266,16 +325,12 @@ The engineer has made additional fixes. Re-verify everything.
             else f"issues/reports/{issue_id}/test-retry-{retry}.md"
         )
 
-        test_msg = f"""{test_body}
+        test_msg = f"""{project_context}{test_body}
 {retry_section}
 ---
 
 Task: Verify the fix for issue {issue_id}.
-
-Project: {PROJECT_CONFIG.project_name}
 Project root: {PROJECT_ROOT}
-TypeScript check: {PROJECT_CONFIG.quality_checks.typescript.command}
-ESLint check: {PROJECT_CONFIG.quality_checks.eslint.command}
 
 Context reports to read:
 - Analysis: issues/reports/{issue_id}/analyze.md
@@ -309,8 +364,6 @@ The previous implementation did not pass verification. Here is the test failure 
 
 Task: Fix the identified issues for {issue_id}.
 Project root: {PROJECT_ROOT}
-TypeScript check: {PROJECT_CONFIG.quality_checks.typescript.command}
-ESLint check: {PROJECT_CONFIG.quality_checks.eslint.command}
 
 Context:
 - Analysis: issues/reports/{issue_id}/analyze.md
@@ -330,7 +383,7 @@ Context:
 async def main(issue_id: str):
     print(f"""
 ╭──────────────────────────────────────────────────────────╮
-│      Bugfix Workflow v3.0 (Skill-Based)                  │
+│      Bugfix Workflow v3.1 (Skill-Based)                  │
 │      Project: {PROJECT_CONFIG.project_name:<38}│
 │      Issue:   {issue_id:<38}│
 ╰──────────────────────────────────────────────────────────╯

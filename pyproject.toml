@@ -1,7 +1,7 @@
 [project]
 name = "bugfix-workflow"
-version = "1.0.0"
-description = "通用 AI Bug 修復工作流程引擎 v3.0 - Skill-Based，支援 Next.js + Monorepo"
+version = "3.1.0"
+description = "通用 AI Bug 修復工作流程引擎 — Skill-Based，支援 Copilot / Claude / OpenAI SDK"
 readme = "README.md"
 requires-python = ">=3.13"
 license = {text = "MIT"}
@@ -10,18 +10,26 @@ authors = [
 ]
 
 dependencies = [
-    "github-copilot-sdk>=0.1.20",
-    "playwright>=1.57.0",
-    "pydantic>=2.12.5",  # config.py 仍使用 Pydantic 驗證 YAML 配置
+    "pydantic>=2.12.5",        # config.py 使用 Pydantic 驗證 YAML 配置
     "python-dotenv>=1.2.1",
     "pyyaml>=6.0",
     "requests>=2.32.5",
-    "pytest>=8.0.0",
-    "pytest-mock>=3.12.0",
-    "click>=8.1.0",  # 用於 CLI
+    "click>=8.1.0",            # CLI 工具
 ]
 
 [project.optional-dependencies]
+# 選擇其中一個 SDK 安裝即可
+copilot = ["github-copilot-sdk>=0.1.20"]
+claude  = ["anthropic>=0.40.0"]
+openai  = ["openai-agents>=0.0.3"]
+
+# 安裝全部（開發/測試用）
+all = [
+    "github-copilot-sdk>=0.1.20",
+    "anthropic>=0.40.0",
+    "openai-agents>=0.0.3",
+]
+
 dev = [
     "pytest>=8.0.0",
     "pytest-mock>=3.12.0",
@@ -31,7 +39,7 @@ dev = [
 
 [project.scripts]
 bugfix-workflow = "main:cli"
-bfw = "main:cli"  # 簡短別名
+bfw = "main:cli"
 
 [build-system]
 requires = ["hatchling"]

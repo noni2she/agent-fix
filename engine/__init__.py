@@ -1,8 +1,7 @@
 """
-Bugfix Workflow Engine v3.0 — Skill-Based
-移除 Pydantic models 和 validators，改用 skill_loader + markdown output
+Bugfix Workflow Engine v3.1 — Skill-Based + SDK Adapter
 """
-__version__ = "3.0.0"
+__version__ = "3.1.0"
 
 # Config
 from .config import ProjectConfig, load_config_from_env, ConfigurationError
@@ -11,7 +10,8 @@ from .project_spec import ProjectSpec
 # Agent Runner
 from .agent_runner import (
     run_in_session,
-    create_copilot_session,
+    create_session,
+    create_copilot_session,   # 向後相容別名
     setup_sdk_error_silencing,
     init_agent_runner,
     ANALYZE_IMPLEMENT_TOOLS,
@@ -32,6 +32,7 @@ __all__ = [
     "ProjectSpec",
     # Agent Runner
     "run_in_session",
+    "create_session",
     "create_copilot_session",
     "setup_sdk_error_silencing",
     "init_agent_runner",
