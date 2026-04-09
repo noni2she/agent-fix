@@ -101,6 +101,7 @@ skills:
   directories:
     - "../your-project/.github/skills"
     # 可加入多個 skills 目錄
+  coding_standards_skill: null  # 可選：填入對應的 skill 名稱（如 vercel-react-best-practices）
 
 # ============================================
 # 開發伺服器配置（用於行為驗證）

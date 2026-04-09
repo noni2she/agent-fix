@@ -34,6 +34,60 @@ Issue 可能為兩種格式：
 
 **⚠️ 工具使用效率原則：盡量用最少的步驟定位問題**
 
+### Step 0: 確認問題存在（必做）
+
+**在進行完整 RCA 之前，先確認問題確實存在於當前 codebase。**
+
+#### 0.1 提取驗證依據
+
+從 issue 中提取：
+- `reproduction_steps` — 重現步驟
+- `expected` / `actual` — 預期行為 vs 實際行為
+- `module` — 問題所在模組
+
+#### 0.2 選擇驗證方式
+
+| 問題類型 | 驗證方式 |
+|---------|---------|
+| 邏輯錯誤（條件判斷、資料處理、missing prop） | 靜態程式碼閱讀 |
+| UI 文字、樣式錯誤 | 靜態程式碼閱讀 |
+| 互動行為（點擊、導航、狀態變化） | 瀏覽器重現（依 Project Context 定義的 dev server） |
+| 無法確定 | 先靜態閱讀，不足時改用瀏覽器驗證 |
+
+#### 0.3 靜態驗證
+
+1. 根據 `module` 和 `actual` 推斷最可能的相關檔案（1-2 個）
+2. 按照 `reproduction_steps` 的邏輯追蹤程式碼路徑
+3. 確認 `actual` 描述的行為是否仍存在於程式碼中
+
+#### 0.4 瀏覽器驗證（互動類問題）
+
+當問題涉及 UI 互動、頁面導航、或靜態閱讀無法確認時，依 **Project Context 定義的 dev server** 啟動瀏覽器驗證：
+
+1. 確認 dev server 是否運行中（參考 Project Context 的啟動命令）
+2. 按照 `reproduction_steps` 逐步操作
+3. 截圖記錄存入 `issues/reports/<issue-id>/reproduction.png`
+
+#### 0.5 根據結果決定後續動作
+
+| 結果 | 後續動作 |
+|------|---------|
+| **問題仍存在** | 繼續 Step 1–4 完整分析 |
+| **問題已被修正** | 輸出 `already_fixed` 報告，**停止分析** |
+| **無法確認** | 繼續 Step 1–2 蒐集線索，再判斷 |
+
+**已修正時的報告格式：**
+
+```
+### 分析報告
+
+- **Status**: already_fixed
+- **Root Cause File**: <修正所在檔案>
+- **Root Cause Line**: <修正所在行號>
+- **Fix Description**: <說明哪段程式碼已處理此問題>
+- **Confidence Score**: <0-1>
+```
+
 ### Step 1: 語義定位
 
 根據 Issue 報告的「模組/功能位置」，推斷可能的檔案位置：

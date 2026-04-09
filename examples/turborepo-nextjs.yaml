@@ -93,6 +93,7 @@ coding_standards:
 # ============================================
 skills:
   directories: []
+  coding_standards_skill: null  # 可選：填入對應的 skill 名稱（如 vercel-react-best-practices）
 
 # ============================================
 # 開發伺服器配置

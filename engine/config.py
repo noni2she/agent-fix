@@ -94,6 +94,10 @@ class SkillsConfig(BaseModel):
         default=[],
         description="Skills 目錄路徑列表（相對或絕對路徑）"
     )
+    coding_standards_skill: Optional[str] = Field(
+        default=None,
+        description="Coding standards skill 名稱（可選，如 vercel-react-best-practices）"
+    )
 
 
 class ProjectConfig(BaseModel):

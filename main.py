@@ -124,6 +124,14 @@ def load_project_context() -> str:
     tactical_rows.append("| Other | **DIRECT** | Isolated module |")
     tactical_table = "\n".join(tactical_rows)
 
+    # Coding Standards Skill（可選）
+    coding_std = cfg.skills.coding_standards_skill
+    coding_standards_section = (
+        f"\n### Coding Standards Skill\n\n`coding_standards_skill: {coding_std}`\n\n"
+        f"修復涉及核心模組、資料獲取或新增依賴時，載入此 skill 查閱對應規則。"
+        if coding_std else ""
+    )
+
     return f"""## Project Context
 
 **Project**: {cfg.project_name} ({cfg.framework})
@@ -155,7 +163,7 @@ Dev server URL: http://localhost:{dev_port}
 - Shared packages: {', '.join(cfg.paths.shared_packages) or 'none'}
 - Shared components: {', '.join(cfg.paths.shared_components) or 'none'}
 - Isolated modules: {', '.join(cfg.paths.isolated_modules) or 'none'}
-{f'- Domain logic: {chr(44).join(cfg.paths.domain_logic)}' if cfg.paths.domain_logic else ''}
+{f'- Domain logic: {chr(44).join(cfg.paths.domain_logic)}' if cfg.paths.domain_logic else ''}{coding_standards_section}
 
 ---
 """

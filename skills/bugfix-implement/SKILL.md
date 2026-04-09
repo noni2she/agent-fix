@@ -119,6 +119,16 @@ function SafeButton({ isActive, ...props }) {
 - [ ] 已確認 diff 正確
 - [ ] 已更新 commit
 
+## 修復時參考 Coding Standards
+
+若 **Project Context** 定義了 `coding_standards_skill`，在以下情境載入對應的 skill：
+
+- 新增或修改核心模組/元件時 → 架構與效能規則
+- 涉及資料獲取或外部 API 呼叫時 → 非同步處理規則
+- 新增第三方依賴時 → 套件管理規則
+
+未定義 `coding_standards_skill` 時，遵循 Project Context 提供的命名規範即可。
+
 ## 輸出格式
 
 ```
