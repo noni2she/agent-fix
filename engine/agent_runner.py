@@ -8,9 +8,8 @@ Agent 執行器模組 v3.1 (SDK Adapter)
     export SDK_ADAPTER=claude
     export SDK_ADAPTER=openai
 
-與 agent-bugfix 的差異：
-  - 保留 init_agent_runner()，由 main.py 傳入 ProjectConfig + ProjectSpec
-  - 工具路徑、命令由 ProjectConfig 配置，無硬編碼
+init_agent_runner() 由 main.py 傳入 ProjectConfig + ProjectSpec，
+工具路徑、命令由 ProjectConfig 配置，無硬編碼。
 """
 import asyncio
 import time

@@ -1,20 +1,20 @@
-# Morse WebApp 專案配置
-# 這是從原始 morse-webapp-app-spec.json 轉換而來的配置
+# Turborepo + Next.js 專案配置範例
+# 適用於 Turborepo + Yarn/PNPM Workspace 架構
 
 # ============================================
 # 基本資訊
 # ============================================
-project_name: "morse-webapp"
+project_name: "my-turborepo-app"
 framework: "nextjs-15-app-router"
 language: "typescript"
-issue_prefix: "MORSE"
+issue_prefix: "BUG"
 
 # ============================================
 # Monorepo 配置
 # ============================================
 monorepo:
   tool: "turborepo"
-  main_workspace: "morse-web"
+  main_workspace: "web"
   workspaces:
     - "apps/*"
     - "packages/*"
@@ -23,45 +23,43 @@ monorepo:
 # 路徑配置
 # ============================================
 paths:
-  root: "../morse-webapp"
+  root: "../my-turborepo-app"
 
   shared_packages:
-    - "packages/api-client/"
-    - "packages/websocket/"
+    - "packages/ui/"
+    - "packages/utils/"
 
   shared_components:
-    - "apps/morse-web/src/components/"
-    - "apps/morse-web/src/hooks/"
-    - "apps/morse-web/src/lib/"
+    - "apps/web/src/components/"
+    - "apps/web/src/hooks/"
+    - "apps/web/src/lib/"
 
   isolated_modules:
-    - "apps/morse-web/src/app/"
+    - "apps/web/src/app/"
 
   domain_logic:
-    - "apps/morse-web/src/domain/"
-    - "apps/morse-web/src/stores/"
+    - "apps/web/src/domain/"
+    - "apps/web/src/stores/"
 
 # ============================================
 # 高風險關鍵字
 # ============================================
 high_risk_keywords:
   - "auth"
-  - "login"
-  - "websocket"
-  - "store"
-  - "zustand"
   - "middleware"
+  - "store"
+  - "websocket"
 
 # ============================================
 # 品質檢查命令
 # ============================================
 quality_checks:
   typescript:
-    command: "yarn workspace morse-web tsc --noEmit"
+    command: "yarn workspace web tsc --noEmit"
     enabled: true
 
   eslint:
-    command: "yarn workspace morse-web lint"
+    command: "yarn workspace web lint"
     enabled: true
 
   prettier:
@@ -69,7 +67,7 @@ quality_checks:
     enabled: true
 
   tests:
-    command: "yarn workspace morse-web test"
+    command: "yarn workspace web test"
     enabled: false
 
 # ============================================
@@ -91,15 +89,14 @@ coding_standards:
     repository: "*.repo.ts"
 
 # ============================================
-# Skills 配置
+# Skills 配置（留空使用內建 skills/）
 # ============================================
 skills:
-  directories:
-    - "../morse-webapp/.github/skills"
+  directories: []
 
 # ============================================
 # 開發伺服器配置
 # ============================================
 dev_server:
-  port: 3001
-  command: null
+  port: 3000
+  command: "yarn workspace web dev"

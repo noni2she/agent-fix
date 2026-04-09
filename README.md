@@ -19,7 +19,7 @@ bugfix-workflow/
 ├── cli.py                     # CLI 工具（bfw run / init / validate）
 ├── config-template.yaml       # 專案配置範本
 ├── examples/                  # 配置範例
-│   ├── morse-webapp.yaml      # Turborepo + Yarn Workspace
+│   ├── turborepo-nextjs.yaml  # Turborepo + Yarn Workspace
 │   └── minimal-nextjs.yaml   # 單一 Next.js 專案
 ├── engine/
 │   ├── config.py              # ProjectConfig（Pydantic YAML 驗證）

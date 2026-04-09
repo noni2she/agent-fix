@@ -96,8 +96,8 @@ def load_project_context() -> str:
     """
     從 ProjectConfig 動態生成專案 context，注入每個 phase prompt 開頭。
 
-    bugfix-workflow（通用版）以 config.yaml 驅動，
-    不依賴固定的 morse-project-context SKILL.md。
+    以 config.yaml 驅動，動態生成通用 project context，
+    注入每個 phase prompt 開頭，無需額外 SKILL.md。
     """
     cfg = PROJECT_CONFIG
 

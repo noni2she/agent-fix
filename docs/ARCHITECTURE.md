@@ -6,9 +6,7 @@
 
 v3.1 在 v3.0 Skill-Based 架構上加入 **SDK Adapter 層**，讓底層 AI SDK 可無痛抽換。
 
-與 `agent-bugfix`（公司版）的核心差異：
-- **agent-bugfix**：Project context 來自固定的 `morse-project-context` SKILL.md
-- **bugfix-workflow**：Project context 由 `config.yaml` 動態生成，支援任意專案
+**Project context 由 `config.yaml` 動態生成**，支援任意專案——無需修改 skills，只需提供對應的配置檔案即可。
 
 ```
 ┌─────────────────────────────────────────────────┐

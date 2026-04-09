@@ -41,7 +41,7 @@ python3 cli.py init \
   --workspace web \                       # Monorepo workspace 名稱 (可選)
   --issue-prefix JIRA \                   # Issue ID 前綴 (預設: BUG)
   --output ./config.yaml \                # 輸出路徑 (預設: ./config.yaml)
-  --template minimal                      # 模板類型 (minimal, full, morse-webapp)
+  --template minimal                      # 模板類型 (minimal, full, turborepo)
 ```
 
 #### 範例
@@ -66,14 +66,14 @@ python3 cli.py init \
   --template full
 ```
 
-**使用 morse-webapp 範例**：
+**使用 turborepo 範例**：
 
 ```bash
 python3 cli.py init \
-  --project-name similar-project \
+  --project-name my-turborepo-app \
   --project-root /path/to/project \
   --workspace web \
-  --template morse-webapp
+  --template turborepo
 ```
 
 輸出範例：
@@ -421,7 +421,6 @@ jobs:
 ## 參考資料
 
 - [配置檔案範例](../config-template.yaml)
-- [Morse-WebApp 配置範例](../examples/morse-webapp.yaml)
+- [Turborepo 配置範例](../examples/turborepo-nextjs.yaml)
 - [最小 Next.js 配置範例](../examples/minimal-nextjs.yaml)
-- [快速開始指南](../QUICK_START.md)
 - [主要 README](../README.md)

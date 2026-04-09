@@ -59,7 +59,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     init_parser.add_argument(
         "--template",
-        choices=["minimal", "full", "morse-webapp"],
+        choices=["minimal", "full", "turborepo"],
         default="minimal",
         help="配置模板類型 (預設: minimal)"
     )
@@ -132,10 +132,8 @@ def command_init(args) -> int:
     print()
     
     # 選擇模板
-    if args.template == "minimal":
-        template_file = Path("config-template.yaml")
-    elif args.template == "morse-webapp":
-        template_file = Path("examples/morse-webapp.yaml")
+    if args.template == "turborepo":
+        template_file = Path("examples/turborepo-nextjs.yaml")
     else:
         template_file = Path("config-template.yaml")
     
