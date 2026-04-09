@@ -1,6 +1,6 @@
-# Bugfix Workflow
+# Agent Fix
 
-> 通用 AI Bug 修復工作流程引擎 — Skill-Based，支援 Copilot / Claude / OpenAI SDK。
+> 通用 AI 問題分析與修復代理引擎 — Skill-Based，支援 Copilot / Claude / OpenAI SDK。
 
 ## Features
 
@@ -33,7 +33,7 @@ agent-fix/
 │   │   ├── claude_adapter.py  # Anthropic Claude SDK
 │   │   └── openai_adapter.py  # OpenAI Agents SDK
 │   └── __init__.py
-├── skills/                    # 通用 bugfix skills（流程邏輯）
+├── skills/                    # 通用 skills（流程邏輯，不含專案細節）
 │   ├── bugfix-analyze/SKILL.md
 │   ├── bugfix-implement/SKILL.md
 │   └── bugfix-test/SKILL.md
