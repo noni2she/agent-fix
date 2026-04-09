@@ -1,12 +1,12 @@
 [project]
-name = "bugfix-workflow"
+name = "agent-fix"
 version = "3.1.0"
-description = "通用 AI Bug 修復工作流程引擎 — Skill-Based，支援 Copilot / Claude / OpenAI SDK"
+description = "通用 AI 問題分析與修復代理引擎 — Skill-Based，支援 Copilot / Claude / OpenAI SDK"
 readme = "README.md"
 requires-python = ">=3.13"
 license = {text = "MIT"}
 authors = [
-    {name = "Bugfix Workflow Contributors"}
+    {name = "Agent Fix Contributors"}
 ]
 
 dependencies = [
@@ -38,8 +38,8 @@ dev = [
 ]
 
 [project.scripts]
-bugfix-workflow = "main:cli"
-bfw = "main:cli"
+agent-fix = "main:cli"
+afix = "main:cli"
 
 [build-system]
 requires = ["hatchling"]

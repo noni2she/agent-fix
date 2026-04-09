@@ -2,9 +2,8 @@
 Skill Loader 模組
 從 SKILL.md 讀取並解析 skill 定義 (frontmatter + body)
 
-與 ai-bugfix-workflow 的差異：
-  skills_dir 必須由呼叫端傳入（從 config.skills.directories 取得），
-  沒有預設硬編碼路徑。
+skills_dir 必須由呼叫端傳入（從 config.skills.directories 取得），
+沒有預設硬編碼路徑。
 """
 from pathlib import Path
 import yaml

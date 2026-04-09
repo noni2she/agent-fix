@@ -14,7 +14,7 @@
 ## Architecture
 
 ```
-bugfix-workflow/
+agent-fix/
 ├── main.py                    # Workflow 主入口（Python loop）
 ├── cli.py                     # CLI 工具（bfw run / init / validate）
 ├── config-template.yaml       # 專案配置範本

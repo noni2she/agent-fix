@@ -58,7 +58,7 @@ analyze_msg = f"{project_context}{analyze_body}\n\n---\n..."
 ## Skills 架構
 
 ```
-bugfix-workflow/skills/   ← 通用流程邏輯（不含專案細節）
+agent-fix/skills/   ← 通用流程邏輯（不含專案細節）
   bugfix-analyze/SKILL.md
   bugfix-implement/SKILL.md
   bugfix-test/SKILL.md

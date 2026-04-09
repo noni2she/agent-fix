@@ -9,7 +9,7 @@
 ```bash
 # 1. 複製專案
 git clone <repository-url>
-cd bugfix-workflow
+cd agent-fix
 
 # 2. 安裝依賴（選擇 SDK）
 uv sync --extra copilot   # GitHub Copilot（預設）

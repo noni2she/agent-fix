@@ -1,9 +1,9 @@
-# bugfix-workflow/main.py
+# agent-fix/main.py
 """
-Bugfix Workflow v3.1 — Skill-Based (Universal)
+Agent Fix v3.1 — Skill-Based (Universal)
 
 Skills 架構：
-  - 通用 skills：bugfix-workflow/skills/（流程邏輯，不含專案細節）
+  - 通用 skills：agent-fix/skills/（流程邏輯，不含專案細節）
   - 專案 context：由 config.yaml 動態生成，注入每個 phase prompt
   - 抽換 SDK：export SDK_ADAPTER=copilot|claude|openai
 

@@ -20,7 +20,7 @@ import re
 def create_parser() -> argparse.ArgumentParser:
     """建立命令列參數解析器"""
     parser = argparse.ArgumentParser(
-        prog="bugfix-workflow",
+        prog="agent-fix",
         description="通用化 AI Bug 修復工作流程",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -185,7 +185,7 @@ def command_init(args) -> int:
     print()
     print("📝 下一步：")
     print(f"   1. 編輯配置檔案: {output_path}")
-    print(f"   2. 驗證配置: bugfix-workflow validate {output_path}")
+    print(f"   2. 驗證配置: agent-fix validate {output_path}")
     print(f"   3. 設定環境變數: export PROJECT_CONFIG={output_path}")
     print(f"   4. 執行修復: python main.py <issue-id>")
     print()
@@ -327,7 +327,7 @@ def command_run(args) -> int:
         print("\n請設定配置檔案路徑：")
         print("  export PROJECT_CONFIG=./config.yaml")
         print("或使用 --config 選項：")
-        print(f"  bugfix-workflow run {args.issue_id} --config ./config.yaml")
+        print(f"  agent-fix run {args.issue_id} --config ./config.yaml")
         return 1
     
     # 導入並執行 main
