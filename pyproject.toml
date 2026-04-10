@@ -38,8 +38,8 @@ dev = [
 ]
 
 [project.scripts]
-agent-fix = "main:cli"
-afix = "main:cli"
+agent-fix = "cli:main"
+afix = "cli:main"
 
 [build-system]
 requires = ["hatchling"]
