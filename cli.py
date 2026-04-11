@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Bugfix Workflow CLI
+Agent Fix CLI
 通用化 AI Bug 修復工作流程的命令列工具
 
 Commands:
@@ -330,10 +330,10 @@ def command_run(args) -> int:
         print(f"  agent-fix run {args.issue_id} --config ./config.yaml")
         return 1
     
-    # 導入並執行 main
+    # 導入並執行 workflow
     try:
-        from main import main
-        asyncio.run(main(args.issue_id))
+        from engine.workflow import run_workflow
+        asyncio.run(run_workflow(args.issue_id))
         return 0
     except FileNotFoundError as e:
         print(f"❌ 錯誤: {e}")

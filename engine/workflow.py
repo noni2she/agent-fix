@@ -1,0 +1,415 @@
+# engine/workflow.py
+"""
+Agent Fix v3.1 — Skill-Based Workflow Engine
+
+Skills 架構：
+  - 通用 skills：agent-fix/skills/（流程邏輯，不含專案細節）
+  - 專案 context：由 config.yaml 動態生成，注入每個 phase prompt
+  - 抽換 SDK：export SDK_ADAPTER=copilot|claude|openai
+
+流程: bugfix-analyze → bugfix-implement → bugfix-test (retry ≤3)
+Token 優化:
+  - analyze + implement 共用 session（保留 file-read context）
+  - test fork 新 session（獨立 context 省 token）
+  - retry 回主 session（帶失敗回饋）
+"""
+import json
+import asyncio
+import re
+import sys
+from pathlib import Path
+from dotenv import load_dotenv
+
+from .config import ProjectConfig, load_config_from_env, ConfigurationError
+from .project_spec import ProjectSpec
+from .skill_loader import load_skill
+from .agent_runner import (
+    create_session,
+    run_in_session,
+    setup_sdk_error_silencing,
+    init_agent_runner,
+    ANALYZE_IMPLEMENT_TOOLS,
+    TEST_TOOLS,
+)
+from .tools import init_tools
+
+# skills/ 目錄路徑：相對於此檔案，往上一層再進 skills/
+# 安裝後位於 site-packages/engine/workflow.py，skills/ 也會在 site-packages/skills/
+SKILLS_DIR = Path(__file__).parent.parent / "skills"
+
+
+# ==========================================
+# Workflow 初始化（延遲到執行時才載入 config）
+# ==========================================
+
+def init_workflow() -> tuple[ProjectConfig, ProjectSpec, Path]:
+    """
+    初始化 workflow 所需元件，延遲到執行時才載入。
+    不在 module 層級執行，避免 import 時觸發 sys.exit。
+    """
+    load_dotenv()
+
+    print("\n" + "=" * 60)
+    print("🚀 Agent Fix v3.1 — Skill-Based")
+    print("=" * 60)
+
+    config = load_config_from_env()
+    spec = ProjectSpec(config)
+    project_root = config.get_project_root()
+
+    print(f"  ✅ Project: {config.project_name}")
+    print(f"  ✅ Framework: {config.framework}")
+    print(f"  ✅ Root: {project_root}")
+    print(f"  ✅ Skills: {SKILLS_DIR}")
+
+    warnings = config.validate_project_structure()
+    if warnings:
+        print(f"\n  ⚠️  Warnings:")
+        for w in warnings:
+            print(f"     - {w}")
+
+    init_tools(config)
+    init_agent_runner(config, spec)
+    print("=" * 60 + "\n")
+
+    return config, spec, project_root
+
+
+# ==========================================
+# Project Context 生成（從 config.yaml 動態生成）
+# ==========================================
+
+def load_project_context(config: ProjectConfig, project_root: Path) -> str:
+    """
+    從 ProjectConfig 動態生成專案 context，注入每個 phase prompt 開頭。
+
+    以 config.yaml 驅動，動態生成通用 project context，
+    注入每個 phase prompt 開頭，無需額外 SKILL.md。
+    """
+    cfg = config
+
+    ts_cmd = cfg.quality_checks.typescript.command
+    lint_cmd = cfg.quality_checks.eslint.command
+    test_cmd = cfg.quality_checks.tests.command if cfg.quality_checks.tests else None
+    dev_cmd = cfg.dev_server.get("command") if cfg.dev_server else None
+    dev_port = cfg.dev_server.get("port", 3000) if cfg.dev_server else 3000
+
+    monorepo_info = (
+        f"- Monorepo: {cfg.monorepo.tool} (workspace: {cfg.monorepo.main_workspace})"
+        if cfg.monorepo else "- Single project"
+    )
+
+    # TACTICAL 判斷條件
+    tactical_rows = []
+    for p in cfg.paths.shared_packages:
+        tactical_rows.append(f"| Path in `{p}` | **TACTICAL** | Shared package |")
+    for p in cfg.paths.shared_components:
+        tactical_rows.append(f"| Path in `{p}`, no customization props | **TACTICAL** | Shared component |")
+    for k in cfg.high_risk_keywords:
+        tactical_rows.append(f"| Path contains `{k}` | **TACTICAL** | High-risk module |")
+    tactical_rows.append("| Other | **DIRECT** | Isolated module |")
+    tactical_table = "\n".join(tactical_rows)
+
+    # Coding Standards Skill（可選）
+    coding_std = cfg.skills.coding_standards_skill
+    coding_standards_section = (
+        f"\n### Coding Standards Skill\n\n`coding_standards_skill: {coding_std}`\n\n"
+        f"修復涉及核心模組、資料獲取或新增依賴時，載入此 skill 查閱對應規則。"
+        if coding_std else ""
+    )
+
+    return f"""## Project Context
+
+**Project**: {cfg.project_name} ({cfg.framework})
+**Root**: {project_root}
+
+### Commands
+
+```bash
+# TypeScript check
+{ts_cmd}
+
+# ESLint
+{lint_cmd}
+{f'# Tests{chr(10)}{test_cmd}' if test_cmd else ''}
+{f'# Dev server{chr(10)}{dev_cmd}' if dev_cmd else ''}
+```
+
+Dev server URL: http://localhost:{dev_port}
+
+### TACTICAL Fix Criteria
+
+| Condition | Strategy | Reason |
+|-----------|----------|--------|
+{tactical_table}
+
+### Project Structure
+
+{monorepo_info}
+- Shared packages: {', '.join(cfg.paths.shared_packages) or 'none'}
+- Shared components: {', '.join(cfg.paths.shared_components) or 'none'}
+- Isolated modules: {', '.join(cfg.paths.isolated_modules) or 'none'}
+{f'- Domain logic: {chr(44).join(cfg.paths.domain_logic)}' if cfg.paths.domain_logic else ''}{coding_standards_section}
+
+---
+"""
+
+
+# ==========================================
+# Issue 載入
+# ==========================================
+
+def load_issue_report(issue_id: str, issues_dir: Path) -> dict:
+    """載入 Bug 報告（從 issues/sources/<id>.json）"""
+    bug_file = issues_dir / f"{issue_id}.json"
+    if not bug_file.exists():
+        raise FileNotFoundError(
+            f"Bug report not found: {bug_file}\n"
+            f"Please create the file using the template in issues/TEMPLATE.json"
+        )
+    with open(bug_file, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+# ==========================================
+# 報告讀取（用於路由決策）
+# ==========================================
+
+def read_analyze_status(issue_id: str, report_dir: Path) -> str:
+    report = report_dir / issue_id / "analyze.md"
+    if not report.exists():
+        return "missing"
+    text = report.read_text(encoding='utf-8')
+    if re.search(r'\*\*Status\*\*[:\s]+confirmed', text, re.IGNORECASE):
+        return "confirmed"
+    if re.search(r'\bconfirmed\b', text, re.IGNORECASE) and \
+       not re.search(r'need_more_info', text, re.IGNORECASE):
+        return "confirmed"
+    return "need_more_info"
+
+
+def read_test_verdict(issue_id: str, report_dir: Path, retry: int = 0) -> str:
+    filename = "test.md" if retry == 0 else f"test-retry-{retry}.md"
+    report = report_dir / issue_id / filename
+    if not report.exists():
+        return "FAIL"
+    text = report.read_text(encoding='utf-8')
+    match = re.search(r'\*\*Verdict\*\*[:\s]+\**\s*(PASS|FAIL)\**', text, re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+    if 'PASS' in text.upper() and 'FAIL' not in text.upper():
+        return "PASS"
+    return "FAIL"
+
+
+def read_report(issue_id: str, report_type: str, report_dir: Path, retry: int = 0) -> str:
+    filename = f"test-retry-{retry}.md" if report_type == "test" and retry > 0 else f"{report_type}.md"
+    report = report_dir / issue_id / filename
+    return report.read_text(encoding='utf-8') if report.exists() else f"(report not found: {filename})"
+
+
+# ==========================================
+# Workflow
+# ==========================================
+
+async def _execute_workflow(issue_id: str, config: ProjectConfig, project_root: Path):
+    """
+    執行完整 bug fix 流程：
+      Phase 1 (analyze) + Phase 2 (implement) → 共用 session
+      Phase 3 (test) → 每次 fork 新 session
+      Test FAIL → retry implement 回主 session（帶失敗回饋）
+    """
+    # issues/ 目錄相對於當前工作目錄（使用者執行指令的位置）
+    issues_dir = Path("issues/sources")
+    report_dir = Path("issues/reports")
+    issues_dir.mkdir(parents=True, exist_ok=True)
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    issue_report = load_issue_report(issue_id, issues_dir)
+    issue_json = json.dumps(issue_report, ensure_ascii=False, indent=2)
+
+    # 載入通用 skills + 動態生成專案 context
+    _, analyze_body = load_skill("bugfix-analyze", SKILLS_DIR)
+    _, implement_body = load_skill("bugfix-implement", SKILLS_DIR)
+    _, test_body = load_skill("bugfix-test", SKILLS_DIR)
+    project_context = load_project_context(config, project_root)
+
+    print(f"\n{'=' * 60}")
+    print(f"  Agent Fix v3.1 (Skill-Based)")
+    print(f"  Project: {config.project_name}")
+    print(f"  Issue: {issue_id}")
+    print(f"{'=' * 60}")
+
+    # ----------------------------------------
+    # 建立主 session（analyze + implement 共用）
+    # ----------------------------------------
+    print("\n🔧 建立主 session (analyze + implement)...")
+    _, main_session = await create_session(ANALYZE_IMPLEMENT_TOOLS)
+
+    # ----------------------------------------
+    # Phase 1: bugfix-analyze
+    # ----------------------------------------
+    print(f"\n{'─' * 60}")
+    print("  Phase 1 / bugfix-analyze")
+    print(f"{'─' * 60}")
+
+    analyze_msg = f"""{project_context}{analyze_body}
+
+---
+
+Task: Analyze the following issue.
+
+Issue report:
+{issue_json}
+
+Project root: {project_root}
+"""
+    await run_in_session(main_session, "analyze", analyze_msg, max_tool_calls=50)
+
+    status = read_analyze_status(issue_id, report_dir)
+    print(f"\n  📊 Analyze status: {status}")
+    if status != "confirmed":
+        print(f"\n  ❌ Analysis not confirmed (status={status}), workflow terminated")
+        return
+
+    # ----------------------------------------
+    # Phase 2: bugfix-implement（同一 session）
+    # ----------------------------------------
+    print(f"\n{'─' * 60}")
+    print("  Phase 2 / bugfix-implement")
+    print(f"{'─' * 60}")
+
+    implement_msg = f"""---
+## ROLE SWITCH: bugfix-implement
+
+You've completed the analysis phase above. The code investigation is in this session's context — you don't need to re-read files you already read. Now switch to implementation mode.
+
+{implement_body}
+
+---
+
+Task: Implement the fix for issue {issue_id}.
+Project root: {project_root}
+
+Read issues/reports/{issue_id}/analyze.md for the fix strategy and root cause.
+
+Project Context (commands & paths):
+{project_context}"""
+    await run_in_session(main_session, "implement", implement_msg, max_tool_calls=30)
+
+    # ----------------------------------------
+    # Phase 3: bugfix-test（每次 fork 新 session）
+    # ----------------------------------------
+    max_retries = 3
+    for retry in range(max_retries + 1):
+        label = f"Phase 3 / bugfix-test{f' (retry {retry})' if retry > 0 else ''}"
+        print(f"\n{'─' * 60}")
+        print(f"  {label}")
+        print(f"{'─' * 60}")
+
+        _, test_session = await create_session(TEST_TOOLS)
+
+        retry_section = ""
+        if retry > 0:
+            prev = read_report(issue_id, "test", report_dir, retry - 1) if retry > 1 else read_report(issue_id, "test", report_dir)
+            retry_section = f"""
+## Previous Test Failure (retry {retry})
+
+{prev}
+
+The engineer has made additional fixes. Re-verify everything.
+"""
+
+        report_path = (
+            f"issues/reports/{issue_id}/test.md" if retry == 0
+            else f"issues/reports/{issue_id}/test-retry-{retry}.md"
+        )
+
+        test_msg = f"""{project_context}{test_body}
+{retry_section}
+---
+
+Task: Verify the fix for issue {issue_id}.
+Project root: {project_root}
+
+Context reports to read:
+- Analysis: issues/reports/{issue_id}/analyze.md
+- Implementation: issues/reports/{issue_id}/implement.md
+
+Write your verification report to: {report_path}
+"""
+        await run_in_session(test_session, "test", test_msg, max_tool_calls=40)
+
+        verdict = read_test_verdict(issue_id, report_dir, retry)
+        print(f"\n  ⚖️  Verdict: {verdict}")
+
+        if verdict == "PASS":
+            print(f"\n  ✅ Fix complete! All checks passed.")
+            print(f"     Reports: issues/reports/{issue_id}/")
+            return
+
+        if retry < max_retries:
+            print(f"\n  🔄 Test FAIL → retry implement ({retry + 1}/{max_retries})")
+            test_report = read_report(issue_id, "test", report_dir, retry)
+            retry_msg = f"""---
+## IMPLEMENT RETRY {retry + 1}/{max_retries}: Previous fix failed
+
+The previous implementation did not pass verification. Here is the test failure report:
+
+{test_report}
+
+{implement_body}
+
+---
+
+Task: Fix the identified issues for {issue_id}.
+Project root: {project_root}
+
+Context:
+- Analysis: issues/reports/{issue_id}/analyze.md
+- Previous implementation: issues/reports/{issue_id}/implement.md
+"""
+            await run_in_session(
+                main_session, f"implement-retry-{retry + 1}", retry_msg, max_tool_calls=30
+            )
+        else:
+            print(f"\n  💀 Max retries ({max_retries}) reached, workflow terminated")
+
+
+async def run_workflow(issue_id: str):
+    """
+    CLI entry point：初始化 workflow 後執行完整修復流程。
+    所有初始化延遲到此處，避免 import 時觸發 sys.exit。
+    """
+    try:
+        config, spec, project_root = init_workflow()
+    except ConfigurationError as e:
+        print(f"\n❌ Configuration Error: {e}\n")
+        print("Set PROJECT_CONFIG environment variable:")
+        print("  export PROJECT_CONFIG=./config/your-project.yaml\n")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n❌ Initialization Error: {e}\n")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+    print(f"""
+╭──────────────────────────────────────────────────────────╮
+│      Agent Fix v3.1 (Skill-Based)                        │
+│      Project: {config.project_name:<38}│
+│      Issue:   {issue_id:<38}│
+╰──────────────────────────────────────────────────────────╯
+""")
+    loop = asyncio.get_event_loop()
+    restore = setup_sdk_error_silencing(loop)
+    try:
+        await _execute_workflow(issue_id, config, project_root)
+    except FileNotFoundError as e:
+        print(f"\n❌ 錯誤: {e}")
+    except Exception as e:
+        print(f"\n❌ 發生錯誤: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        restore()
