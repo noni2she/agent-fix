@@ -5,7 +5,7 @@
 import os
 import yaml
 from pathlib import Path
-from typing import Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -145,7 +145,7 @@ class ProjectConfig(BaseModel):
         default_factory=SkillsConfig,
         description="Skills 配置"
     )
-    dev_server: Optional[Dict[str, any]] = Field(
+    dev_server: Optional[Dict[str, Any]] = Field(
         default={"port": 3001, "command": None},
         description="開發伺服器配置"
     )
