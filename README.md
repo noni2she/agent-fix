@@ -73,17 +73,17 @@ config.yaml → load_project_context() → 動態生成 Markdown
 
 ### 安裝
 
-```bash
-# 安裝 uv（推薦）
-curl -LsSf https://astral.sh/uv/install.sh | sh
+兩種安裝路徑，視使用情境擇一：
 
-# Clone 後安裝（選擇 SDK）
+```bash
+# 方式 A：uv 專案 venv（推薦開發用）
+curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --extra copilot   # GitHub Copilot（預設）
 uv sync --extra claude    # Anthropic Claude
 uv sync --extra openai    # OpenAI Agents
 uv sync --extra all       # 全部安裝
 
-# 或 pip 全域安裝（可從任意目錄執行）
+# 方式 B：pip 全域安裝（可從任意目錄執行 agent-fix）
 pip install ".[copilot]"  # GitHub Copilot
 pip install ".[claude]"   # Anthropic Claude
 pip install ".[all]"      # 全部
@@ -92,7 +92,13 @@ pip install ".[all]"      # 全部
 ### 設定專案
 
 ```bash
-# 初始化配置
+# 初始化配置（方式 A：uv 環境）
+uv run agent-fix init \
+  --project-name my-project \
+  --project-root /path/to/project \
+  --workspace web
+
+# 或方式 B：pip 全域安裝 / 已 activate venv
 agent-fix init \
   --project-name my-project \
   --project-root /path/to/project \
@@ -103,7 +109,8 @@ cp config-template.yaml config/my-project.yaml
 # 編輯 config/my-project.yaml
 
 # 驗證配置
-agent-fix validate config/my-project.yaml
+uv run agent-fix validate config/my-project.yaml   # uv 環境
+agent-fix validate config/my-project.yaml          # pip 全域 / venv 已 activate
 ```
 
 ### 執行修復
@@ -116,11 +123,24 @@ cp .env.example .env
 # 建立 Bug 報告
 cp issues/TEMPLATE.json issues/sources/BUG-001.json
 # 填入 issue 資訊
+```
 
-# 執行（三種等效方式）
+**方式 A：uv 環境（不用 activate venv）**
+
+```bash
+uv run agent-fix run BUG-001                                    # 讀取 .env 的 PROJECT_CONFIG
+uv run agent-fix run BUG-001 --config ./config/my-project.yaml  # 明確指定
+uv run afix run BUG-001                                         # 簡短別名
+uv run main.py BUG-001                                          # 直接跑 main.py
+```
+
+**方式 B：pip 全域安裝 / venv 已 activate**
+
+```bash
 agent-fix run BUG-001                                    # 讀取 .env 的 PROJECT_CONFIG
 agent-fix run BUG-001 --config ./config/my-project.yaml  # 明確指定
 afix run BUG-001                                         # 簡短別名
+python main.py BUG-001                                   # 直接跑 main.py
 ```
 
 ### 切換 SDK
