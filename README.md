@@ -4,24 +4,26 @@
 
 ## Features
 
-- **配置驅動** — 使用 YAML 定義專案結構，支援任意 Next.js + Monorepo 專案
+- **配置驅動** — 使用 YAML 定義專案結構，支援任意框架與 Monorepo
 - **Skill-Based 架構** — 以 SKILL.md 定義行為，流程邏輯與專案細節分離
 - **多 SDK 支援** — GitHub Copilot / Anthropic Claude / OpenAI Agents（一行切換）
 - **動態 Project Context** — 從 config.yaml 生成專案 context，注入每個 phase
 - **Smart Retry** — 測試失敗自動回到 implement 重修（最多 3 次）
 - **Token 優化** — analyze + implement 共用 session，test 獨立 session
+- **全域安裝** — `pip install` 後可從任意目錄執行 `agent-fix run <issue-id>`
 
 ## Architecture
 
 ```
 agent-fix/
-├── main.py                    # Workflow 主入口（Python loop）
-├── cli.py                     # CLI 工具（bfw run / init / validate）
+├── cli.py                     # CLI 入口（agent-fix / afix 指令）
+├── main.py                    # 向後相容 shim（python main.py <id>）
 ├── config-template.yaml       # 專案配置範本
 ├── examples/                  # 配置範例
 │   ├── turborepo-nextjs.yaml  # Turborepo + Yarn Workspace
-│   └── minimal-nextjs.yaml   # 單一 Next.js 專案
+│   └── minimal-nextjs.yaml    # 單一 Next.js 專案
 ├── engine/
+│   ├── workflow.py            # Workflow 主邏輯（init + execute，延遲載入）
 │   ├── config.py              # ProjectConfig（Pydantic YAML 驗證）
 │   ├── project_spec.py        # ProjectSpec（TACTICAL 判斷邏輯）
 │   ├── agent_runner.py        # Session 管理，透過 adapters 操作 SDK
@@ -53,6 +55,12 @@ analyze ──→ implement ──→ test ──→ PASS → done
                     implement-retry ──→ test（最多 3 次）
 ```
 
+| Phase | Session | 輸出 |
+|-------|---------|------|
+| **analyze** | 主 session | `issues/reports/<id>/analyze.md` |
+| **implement** | 主 session（保留 context） | `issues/reports/<id>/implement.md` |
+| **test** | 獨立 session（省 token） | `issues/reports/<id>/test.md` |
+
 ### Project Context 生成
 
 ```
@@ -69,18 +77,23 @@ config.yaml → load_project_context() → 動態生成 Markdown
 # 安裝 uv（推薦）
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 安裝（選擇 SDK）
+# Clone 後安裝（選擇 SDK）
 uv sync --extra copilot   # GitHub Copilot（預設）
 uv sync --extra claude    # Anthropic Claude
 uv sync --extra openai    # OpenAI Agents
 uv sync --extra all       # 全部安裝
+
+# 或 pip 全域安裝（可從任意目錄執行）
+pip install ".[copilot]"  # GitHub Copilot
+pip install ".[claude]"   # Anthropic Claude
+pip install ".[all]"      # 全部
 ```
 
 ### 設定專案
 
 ```bash
 # 初始化配置
-python cli.py init \
+agent-fix init \
   --project-name my-project \
   --project-root /path/to/project \
   --workspace web
@@ -90,7 +103,7 @@ cp config-template.yaml config/my-project.yaml
 # 編輯 config/my-project.yaml
 
 # 驗證配置
-python cli.py validate config/my-project.yaml
+agent-fix validate config/my-project.yaml
 ```
 
 ### 執行修復
@@ -102,11 +115,12 @@ cp .env.example .env
 
 # 建立 Bug 報告
 cp issues/TEMPLATE.json issues/sources/BUG-001.json
+# 填入 issue 資訊
 
-# 執行
-python main.py BUG-001
-# 或用 CLI
-python cli.py run BUG-001
+# 執行（三種等效方式）
+agent-fix run BUG-001                                    # 讀取 .env 的 PROJECT_CONFIG
+agent-fix run BUG-001 --config ./config/my-project.yaml  # 明確指定
+afix run BUG-001                                         # 簡短別名
 ```
 
 ### 切換 SDK
@@ -142,14 +156,28 @@ quality_checks:
     command: "yarn workspace web lint"
 
 skills:
-  directories: []  # 留空使用內建 skills/
+  directories: []              # 留空使用內建 skills/
+  coding_standards_skill: ""   # 選填：指定額外 coding standards skill 名稱
 
 monorepo:
-  tool: "yarn-workspaces"
+  tool: "turborepo"
   main_workspace: "web"
+
+dev_server:
+  port: 3000
+  command: "yarn workspace web dev"
 ```
 
 詳見 [config-template.yaml](config-template.yaml) 查看所有選項。
+
+## CLI Commands
+
+```bash
+agent-fix init      --project-name <name> --project-root <path>  # 初始化配置
+agent-fix validate  <config-file>                                  # 驗證配置
+agent-fix check-deps [--fix]                                       # 檢查依賴
+agent-fix run       <issue-id> [--config <path>]                   # 執行修復
+```
 
 ## Custom Tools
 
