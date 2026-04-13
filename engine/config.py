@@ -88,6 +88,26 @@ class CodingStandardsConfig(BaseModel):
     )
 
 
+class IssueSourceConfig(BaseModel):
+    """Issue 來源配置"""
+    type: str = Field(
+        default="local_json",
+        description=(
+            "Issue 來源類型。\n"
+            "內建：local_json（預設，從 issues/sources/<id>.json 讀取）\n"
+            "自訂：繼承 IssueSourceAdapter 實作後，填入自訂識別名稱並在程式碼中建立實例"
+        )
+    )
+    options: Dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Adapter 特定的選項設定。\n"
+            "local_json 可用選項：\n"
+            "  sources_dir: str  # issue JSON 目錄，預設 issues/sources"
+        )
+    )
+
+
 class SkillsConfig(BaseModel):
     """Skills 配置"""
     directories: List[str] = Field(
@@ -140,6 +160,10 @@ class ProjectConfig(BaseModel):
     coding_standards: CodingStandardsConfig = Field(
         default_factory=CodingStandardsConfig,
         description="程式碼規範"
+    )
+    issue_source: IssueSourceConfig = Field(
+        default_factory=IssueSourceConfig,
+        description="Issue 來源配置（預設：local_json）"
     )
     skills: SkillsConfig = Field(
         default_factory=SkillsConfig,

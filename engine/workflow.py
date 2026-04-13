@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 from .config import ProjectConfig, load_config_from_env, ConfigurationError
 from .project_spec import ProjectSpec
 from .skill_loader import load_skill
+from .issue_source import create_adapter, IssueNotFoundError, IssueSourceError
 from .agent_runner import (
     create_session,
     run_in_session,
@@ -159,18 +160,6 @@ Dev server URL: http://localhost:{dev_port}
 # Issue 載入
 # ==========================================
 
-def load_issue_report(issue_id: str, issues_dir: Path) -> dict:
-    """載入 Bug 報告（從 issues/sources/<id>.json）"""
-    bug_file = issues_dir / f"{issue_id}.json"
-    if not bug_file.exists():
-        raise FileNotFoundError(
-            f"Bug report not found: {bug_file}\n"
-            f"Please create the file using the template in issues/TEMPLATE.json"
-        )
-    with open(bug_file, 'r', encoding='utf-8') as f:
-        return json.load(f)
-
-
 # ==========================================
 # 報告讀取（用於路由決策）
 # ==========================================
@@ -219,13 +208,21 @@ async def _execute_workflow(issue_id: str, config: ProjectConfig, project_root: 
       Phase 3 (test) → 每次 fork 新 session
       Test FAIL → retry implement 回主 session（帶失敗回饋）
     """
-    # issues/ 目錄相對於當前工作目錄（使用者執行指令的位置）
-    issues_dir = Path("issues/sources")
+    # issues/ 報告目錄
     report_dir = Path("issues/reports")
-    issues_dir.mkdir(parents=True, exist_ok=True)
     report_dir.mkdir(parents=True, exist_ok=True)
 
-    issue_report = load_issue_report(issue_id, issues_dir)
+    # 透過 issue source adapter 取得 issue 資料
+    adapter = create_adapter(config.issue_source)
+    try:
+        adapter.validate()
+        issue_report = adapter.fetch(issue_id)
+    except IssueNotFoundError as e:
+        print(f"\n❌ Issue not found: {e}")
+        sys.exit(1)
+    except IssueSourceError as e:
+        print(f"\n❌ Failed to fetch issue: {e}")
+        sys.exit(1)
     issue_json = json.dumps(issue_report, ensure_ascii=False, indent=2)
 
     # 載入通用 skills + 動態生成專案 context
