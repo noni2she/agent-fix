@@ -76,4 +76,47 @@ Retro 產出的技術知識（例：「原來 Pydantic `any` 是 built-in functi
 
 ---
 
+## 2026-04-13：Serena 評估 — 知識累積工具
+
+### 什麼是 Serena
+
+[oraios/serena](https://github.com/oraios/serena) 是一個 MCP server，核心價值是 IDE 等級的 **symbol-level 程式碼理解與重構**（底層接 LSP，支援 40+ 語言）。附帶一個 **memory 系統**。
+
+### Memory 機制
+
+| 面向 | 實作方式 |
+|------|---------|
+| 格式 | Markdown 檔案（人類可讀可編輯） |
+| 儲存位置 | 專案級 `.serena/memories/`；全域級 `~/.serena/memories/global/` |
+| MCP tools | `list_memories`、`read_memory`、`write_memory` |
+| 跨 session | ✅ 檔案持久化，新 session 啟動時 agent 收到 memory 列表 |
+| 跨裝置 | 官方建議用 git 追蹤 memories 目錄 |
+| 跨 agent | ✅ 任何 MCP 相容 client（Claude Code、Cursor、Copilot） |
+| Onboarding | 首次啟動自動分析專案結構，寫入 memory |
+| 階層化 | 用 `/` 分隔命名建子目錄（如 `modules/frontend`） |
+
+### 與「個人知識庫」的關聯
+
+Serena memory 定位是**專案知識累積**（架構理解、慣例、踩坑記錄），性質上接近知識庫的「專案知識」面向。值得借鑑的設計：
+
+1. **全域 vs 專案級分離** — 跨專案通用知識 vs 專案特定知識
+2. **Onboarding** — 首次接觸專案時自動分析並寫入 memory
+3. **階層化命名** — 用路徑建立 tree 結構
+
+### 與「session handoff」需求的差異
+
+Serena memory 解決的是「專案知識累積」，不是「工作進度交接」：
+- ❌ 沒有結構化的「進度 / 決策 / 待辦」schema
+- ❌ 沒有「一鍵保存當前工作狀態」的概念
+- ❌ 整套 MCP server，只想要 memory 太 overkill
+- ✅ 但證明了「markdown 檔案 + 持久化 + agent 自動讀取」這條路可行
+
+### 結論
+
+- **知識庫場景**：值得關注，未來如果 jarvis-team 知識庫做到中期階段，可以評估是否用 Serena 的 memory 替代或互補
+- **session handoff 場景**：不適用，自己做 skill 更精準更輕量
+- **程式碼理解場景**：Serena 的 symbol-level 能力對 agent-fix 的 bugfix-analyze 可能有幫助，但這是獨立評估
+
+---
+
 <!-- 下一個 brainstorm 在這裡接續 -->
