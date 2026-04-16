@@ -62,11 +62,17 @@ Issue 可能為兩種格式：
 
 #### 0.4 瀏覽器驗證（互動類問題）
 
-當問題涉及 UI 互動、頁面導航、或靜態閱讀無法確認時，依 **Project Context 定義的 dev server** 啟動瀏覽器驗證：
+當問題涉及 UI 互動、頁面導航、或靜態閱讀無法確認時，使用 **Chrome DevTools MCP** 在真實瀏覽器中探索：
+
+> 切換到 `chrome-devtools` skill（`/chrome-devtools`）進行以下操作：
 
 1. 確認 dev server 是否運行中（參考 Project Context 的啟動命令）
-2. 按照 `reproduction_steps` 逐步操作
-3. 截圖記錄存入 `issues/reports/<issue-id>/reproduction.png`
+2. `navigate_page` 打開問題頁面，按照 `reproduction_steps` 逐步操作（click / fill / press_key）
+3. `list_console_messages` 過濾 type=error，找 runtime exception
+4. `list_network_requests` 找失敗的 API（4xx / 5xx）
+5. `evaluate_script` 驗證可疑邏輯的假設
+6. `take_screenshot` 記錄存入 `issues/reports/<issue-id>/reproduction.png`
+7. 整理探索結果（console errors / API failures / JS 驗證）回報給分析流程
 
 #### 0.5 根據結果決定後續動作
 
