@@ -108,6 +108,35 @@ class IssueSourceConfig(BaseModel):
     )
 
 
+class BehaviorValidationConfig(BaseModel):
+    """行為驗證配置（Playwright）"""
+    enabled: bool = Field(
+        default=False,
+        description="是否啟用 Playwright 行為驗證（Phase 4）"
+    )
+    port: int = Field(
+        default=3000,
+        description="Dev server port"
+    )
+    workspace: Optional[str] = Field(
+        default=None,
+        description="Monorepo workspace 名稱（fallback dev server 啟動方式）"
+    )
+    headless: bool = Field(
+        default=True,
+        description="Playwright 無頭模式（agent/CI 環境用 True，本地 debug 用 False）"
+    )
+    channel: Optional[str] = Field(
+        default=None,
+        description=(
+            "瀏覽器 channel。\n"
+            "  null（預設）→ 使用 Playwright 自帶 Chromium（自動安裝）\n"
+            "  'chrome'    → 使用系統已安裝的 Google Chrome（不需額外安裝）\n"
+            "  'msedge'    → 使用系統 Microsoft Edge"
+        )
+    )
+
+
 class SkillsConfig(BaseModel):
     """Skills 配置"""
     directories: List[str] = Field(
@@ -168,6 +197,10 @@ class ProjectConfig(BaseModel):
     skills: SkillsConfig = Field(
         default_factory=SkillsConfig,
         description="Skills 配置"
+    )
+    behavior_validation: BehaviorValidationConfig = Field(
+        default_factory=BehaviorValidationConfig,
+        description="行為驗證配置（Playwright）"
     )
     dev_server: Optional[Dict[str, Any]] = Field(
         default={"port": 3001, "command": None},

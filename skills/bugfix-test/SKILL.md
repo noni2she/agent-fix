@@ -74,60 +74,44 @@ ELSE:
 3. 如果測試不存在：根據 verification_hints 產生臨時驗證腳本並執行
 4. 如果測試不存在，記錄技術債到報告中
 
-### Phase 4: 行為驗證（使用 agent-browser）
+### Phase 4: 行為驗證（Playwright）
 
-**觸發條件**：Issue 需要瀏覽器驗證（涉及 UI 互動、頁面導航等）
+**觸發條件**：`verification_method == "e2e"`（分析報告中標記需要瀏覽器驗證）
 
-#### 前置確認
+**跳過條件**：
+- 純邏輯問題、靜態分析即可確認
+- `behavior_validation.enabled: false`（config 停用）
+- 分析報告 `verification_method` 為 `static` 或 `unit_test`
 
-```bash
-which agent-browser || npm install -g agent-browser
-agent-browser install 2>/dev/null || true
-```
+跳過時標記 `behavior_validation: SKIPPED`，不影響整體 Verdict。
 
-#### 測試執行流程
+#### 執行流程
 
-**步驟 1: 啟動開發伺服器**
+**步驟 1：設計測試場景**
 
-執行 **Project Context** 中定義的 dev server 指令，等待就緒：
+根據分析報告的 `reproduction_steps` 與 `verification_hints`，設計 scenario JSON：
 
-```bash
-agent-browser open <DEV_SERVER_URL> --wait-until networkidle
-```
+- 從 Project Context 附錄的 **Behavior Validation Scenario Schema** 取得可用 action / assertion 類型
+- 從 `reproduction_steps` 對應動作序列
+- assertions 設計為「驗證 bug 已修復」，而非「重現 bug」
 
-**步驟 2: 根據 reproduction_steps 執行操作**
+**步驟 2：呼叫 `run_behavior_validation` tool**
 
-| Issue 描述 | agent-browser 指令 |
-|---|---|
-| 輸入文字 | `agent-browser type "selector" "text"` |
-| 點擊元素 | `agent-browser click "selector"` |
-| 等待載入 | `agent-browser wait --text "預期文字"` |
+將設計好的 scenario JSON 字串傳入 tool，由 Python 端負責：
+- 檢查 dev server 是否在執行（自動啟動或報錯）
+- 開啟 Playwright Chromium
+- 執行動作序列 + 斷言
+- 截圖留存（失敗時自動截圖）
+- 回傳 PASS / FAIL / SKIPPED + 詳細結果
 
-語義化選擇器優先：
+**步驟 3：解讀結果**
 
-```bash
-agent-browser click --text "按鈕文字"
-agent-browser click --role button --name "名稱"
-agent-browser snapshot  # 取得 accessibility tree
-agent-browser click @e5  # 用 ref 點擊
-```
-
-**步驟 3: 驗證預期行為**
-
-```bash
-agent-browser visible ".target-element"
-agent-browser text ".target-element"
-agent-browser screenshot --path "evidence/after-fix.png"
-```
-
-**步驟 4: 清理**
-
-```bash
-agent-browser close
-kill $DEV_PID 2>/dev/null
-```
-
-**跳過條件**：純邏輯問題、靜態分析即可確認時，跳過並標記 `behavior_validation: SKIPPED`。
+- `PASS` → 繼續 Phase 5
+- `FAIL` → 回傳 FAIL，包含：
+  - 哪個動作或斷言失敗
+  - 錯誤訊息
+  - 截圖路徑（供 Engineer 參考）
+- `SKIPPED` → config 停用或未提供場景，視為已跳過
 
 ### Phase 5: UI/UX 規範檢查（僅限 UI 相關修復）
 

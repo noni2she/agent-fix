@@ -9,9 +9,11 @@ Copilot SDK 已內建以下工具，不需要自訂：
 
 本檔案僅保留有封裝價值的業務邏輯工具。
 """
-import subprocess
+import asyncio
 import json
+import subprocess
 import datetime
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -132,6 +134,115 @@ def run_eslint() -> str:
 
 
 # ==========================================
+# 行為驗證工具（Playwright）
+# ==========================================
+
+def run_behavior_validation(scenario_json: str) -> str:
+    """
+    執行 Playwright 行為驗證
+
+    由 bugfix-test LLM 呼叫：LLM 設計測試場景（JSON），
+    Python 端使用 Playwright 實際執行並回傳結果。
+
+    Args:
+        scenario_json: JSON 字串，格式：
+            {
+              "url_path": "/path",
+              "actions": [...],
+              "assertions": [...]
+            }
+
+    Returns:
+        驗證結果摘要字串（PASS / FAIL / SKIPPED + 場景細節）
+
+    封裝價值：
+    - 從 config 取得 port / workspace / headless / dev_command
+    - 在獨立執行緒開新 event loop 跑 async Playwright（避免干擾主 loop）
+    - 格式化回傳結果給 LLM 繼續使用
+    """
+    config = _get_config()
+    bv_config = config.behavior_validation
+
+    if not bv_config.enabled:
+        return "⏭️  行為驗證已停用（behavior_validation.enabled: false）"
+
+    # 解析 scenario JSON
+    try:
+        scenario_data = json.loads(scenario_json)
+    except json.JSONDecodeError as e:
+        return f"❌ 無效的 scenario JSON: {e}"
+
+    issue_id = scenario_data.get("name", "unknown")
+    project_root = config.get_project_root()
+
+    # 從 config.dev_server 取得啟動命令
+    dev_command = None
+    if config.dev_server and config.dev_server.get("command"):
+        raw_cmd = config.dev_server["command"]
+        dev_command = raw_cmd.split() if isinstance(raw_cmd, str) else raw_cmd
+
+    # 在新執行緒開獨立 event loop 跑 async Playwright
+    # （不能在現有 loop 中呼叫 asyncio.run()，因此用 thread 隔離）
+    result_holder: dict = {}
+
+    def _run_in_thread():
+        from .behavior_validation import BehaviorValidator
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            validator = BehaviorValidator(
+                project_root=project_root,
+                port=bv_config.port,
+                workspace=bv_config.workspace,
+                headless=bv_config.headless,
+                dev_command=dev_command,
+                channel=bv_config.channel,
+            )
+            report = loop.run_until_complete(
+                validator.validate(issue_id, dynamic_scenario=scenario_data)
+            )
+            result_holder["report"] = report
+        except Exception as e:
+            result_holder["error"] = str(e)
+        finally:
+            loop.close()
+
+    thread = threading.Thread(target=_run_in_thread)
+    thread.start()
+    thread.join(timeout=300)
+
+    if not thread.is_alive() is False:
+        return "❌ 行為驗證執行超時（>300s）"
+
+    if "error" in result_holder:
+        return f"❌ 行為驗證發生錯誤: {result_holder['error']}"
+
+    report = result_holder.get("report")
+    if not report:
+        return "❌ 行為驗證未回傳結果"
+
+    # 格式化輸出給 LLM
+    verdict_icon = "✅" if report.verdict == "PASS" else ("⏭️" if report.verdict == "SKIPPED" else "❌")
+    lines = [
+        f"{verdict_icon} 行為驗證: {report.verdict}",
+        f"   通過場景: {report.scenarios_passed}/{report.scenarios_run}",
+    ]
+    for r in report.results:
+        icon = "✅" if r.passed else "❌"
+        lines.append(f"   {icon} {r.name} ({r.duration_seconds:.1f}s)")
+        if not r.passed and r.error:
+            lines.append(f"      錯誤: {r.error}")
+        if r.console_errors:
+            lines.append(f"      Console errors ({len(r.console_errors)}):")
+            for ce in r.console_errors[:5]:
+                lines.append(f"        [{ce['type']}] {ce['text'][:200]}")
+        if r.screenshots:
+            lines.append(f"      截圖: {', '.join(r.screenshots)}")
+
+    return "\n".join(lines)
+
+
+# ==========================================
 # 技術債記錄工具（業務邏輯，非通用工具）
 # ==========================================
 
@@ -175,5 +286,6 @@ def record_tech_debt(issue_id: str, missing_tests: List[str], reason: str) -> st
 TOOL_MAP = {
     "run_typescript_check": run_typescript_check,
     "run_eslint": run_eslint,
+    "run_behavior_validation": run_behavior_validation,
     "record_tech_debt": record_tech_debt,
 }

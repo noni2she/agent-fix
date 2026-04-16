@@ -47,6 +47,7 @@ ANALYZE_IMPLEMENT_TOOLS = [
 TEST_TOOLS = [
     "run_typescript_check",
     "run_eslint",
+    "run_behavior_validation",
 ]
 
 

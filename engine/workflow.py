@@ -119,6 +119,42 @@ def load_project_context(config: ProjectConfig, project_root: Path) -> str:
         if coding_std else ""
     )
 
+    # Behavior Validation scenario schema（只在 enabled 時注入）
+    bv_section = ""
+    if config.behavior_validation.enabled:
+        bv_section = f"""
+### Behavior Validation — Scenario Schema
+
+When `verification_method == "e2e"`, call the `run_behavior_validation` tool with a JSON string:
+
+```json
+{{
+  "name": "<issue-id>",
+  "url_path": "/path/to/test",
+  "actions": [
+    {{"type": "goto",       "value": "/path"}},
+    {{"type": "wait_for",  "selector": "#element",          "timeout": 10000}},
+    {{"type": "click",     "selector": "#button"}},
+    {{"type": "type",      "selector": "input#name",        "value": "text input"}},
+    {{"type": "screenshot","description": "after action"}}
+  ],
+  "assertions": [
+    {{"type": "visible",      "selector": "#element",   "expected": true}},
+    {{"type": "text_content", "selector": "#el",        "expected": "expected text"}},
+    {{"type": "url",                                     "expected": "/expected-path"}},
+    {{"type": "count",        "selector": ".items",     "expected": 3}}
+  ]
+}}
+```
+
+Dev server: http://localhost:{dev_port}
+Rules:
+- Always start with a `goto` action
+- Use `wait_for` before interacting with dynamically rendered elements
+- Add `screenshot` steps at key checkpoints (after major interactions)
+- Design assertions based on `reproduction_steps` and expected fix outcome
+"""
+
     return f"""## Project Context
 
 **Project**: {cfg.project_name} ({cfg.framework})
@@ -150,8 +186,7 @@ Dev server URL: http://localhost:{dev_port}
 - Shared packages: {', '.join(cfg.paths.shared_packages) or 'none'}
 - Shared components: {', '.join(cfg.paths.shared_components) or 'none'}
 - Isolated modules: {', '.join(cfg.paths.isolated_modules) or 'none'}
-{f'- Domain logic: {chr(44).join(cfg.paths.domain_logic)}' if cfg.paths.domain_logic else ''}{coding_standards_section}
-
+{f'- Domain logic: {chr(44).join(cfg.paths.domain_logic)}' if cfg.paths.domain_logic else ''}{coding_standards_section}{bv_section}
 ---
 """
 

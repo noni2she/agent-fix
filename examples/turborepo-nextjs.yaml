@@ -108,3 +108,13 @@ skills:
 dev_server:
   port: 3000
   command: "yarn workspace web dev"
+
+# ============================================
+# 行為驗證配置（Playwright）
+# ============================================
+behavior_validation:
+  enabled: true        # 有前端 UI 的專案建議啟用
+  port: 3000           # 與 dev_server.port 一致
+  workspace: "web"     # Monorepo workspace（dev_server.command 已設定時此欄僅供參考）
+  headless: true       # Agent 自動執行用 true；本地 debug 可改 false
+  channel: null        # null = Playwright 自帶 Chromium（自動安裝）；"chrome" = 系統 Chrome

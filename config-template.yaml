@@ -119,4 +119,16 @@ skills:
 # ============================================
 dev_server:
   port: 3001
-  command: null # 如果需要自訂啟動命令，可在此指定
+  command: null  # 如果需要自訂啟動命令，可在此指定（如 "yarn workspace web dev"）
+
+# ============================================
+# 行為驗證配置（Playwright）
+# ============================================
+behavior_validation:
+  enabled: false       # 設為 true 以啟用 Phase 4 瀏覽器驗證
+  port: 3001           # Dev server port（與 dev_server.port 一致）
+  workspace: null      # Monorepo workspace 名稱（無自訂 dev_server.command 時使用）
+  headless: true       # True = 無頭模式（agent/CI 環境）；False = 顯示瀏覽器視窗（本地 debug）
+  channel: null        # null = 使用 Playwright 自帶 Chromium（首次執行自動安裝）
+                       # "chrome"  = 使用系統 Google Chrome（已裝則免額外安裝）
+                       # "msedge"  = 使用系統 Microsoft Edge
