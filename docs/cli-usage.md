@@ -332,7 +332,7 @@ python3 cli.py check-deps --fix
 **解決方法**:
 
 1. 檢查錯誤訊息中的具體問題
-2. 參考 `config-template.yaml` 或 `examples/` 中的範例
+2. 參考 `config-template.yaml` 或 `projects/` 中的範例
 3. 使用 YAML 驗證工具檢查語法
 
 ### 問題 3: `PROJECT_CONFIG` 環境變數未設定
@@ -421,6 +421,6 @@ jobs:
 ## 參考資料
 
 - [配置檔案範例](../config-template.yaml)
-- [Turborepo 配置範例](../examples/turborepo-nextjs.yaml)
-- [最小 Next.js 配置範例](../examples/minimal-nextjs.yaml)
+- [Turborepo 配置範例](../projects/turborepo-nextjs.yaml)
+- [最小 Next.js 配置範例](../projects/minimal-nextjs.yaml)
 - [主要 README](../README.md)

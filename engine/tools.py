@@ -1,5 +1,5 @@
 """
-自訂工具函式庫（僅保留 SDK 未內建的業務邏輯工具）
+自訂工具函式庫
 
 Copilot SDK 已內建以下工具，不需要自訂：
 - execute (shell/Bash): 任意 shell 指令（含 git 操作）
@@ -7,9 +7,12 @@ Copilot SDK 已內建以下工具，不需要自訂：
 - edit (Edit/Write): 編輯/寫入檔案
 - search (Grep/Glob): 文字搜尋 + 檔案搜尋
 
-本檔案僅保留有封裝價值的業務邏輯工具。
+本檔案提供：
+1. 業務邏輯工具（品質檢查、行為驗證、技術債）
+2. 檔案系統工具（供 Claude/OpenAI adapter 使用，Copilot 已內建）
 """
 import asyncio
+import fnmatch
 import json
 import subprocess
 import datetime
@@ -280,12 +283,151 @@ def record_tech_debt(issue_id: str, missing_tests: List[str], reason: str) -> st
 
 
 # ==========================================
-# 工具映射表（僅自訂工具，SDK 內建工具不需要列入）
+# 檔案系統工具（Claude/OpenAI adapter 使用；Copilot SDK 已內建）
+# ==========================================
+
+_MAX_FILE_SIZE = 100 * 1024  # 100KB 讀取上限
+
+
+def read_file(path: str) -> str:
+    """
+    讀取指定路徑的檔案內容
+
+    Args:
+        path: 檔案路徑（絕對或相對路徑）
+
+    Returns:
+        檔案內容字串，或錯誤訊息
+    """
+    try:
+        file_path = Path(path).expanduser().resolve()
+        if not file_path.exists():
+            return f"❌ 檔案不存在: {path}"
+        if not file_path.is_file():
+            return f"❌ 路徑不是檔案: {path}"
+        size = file_path.stat().st_size
+        if size > _MAX_FILE_SIZE:
+            return f"❌ 檔案過大 ({size} bytes)，上限 {_MAX_FILE_SIZE} bytes: {path}"
+        return file_path.read_text(encoding="utf-8", errors="replace")
+    except PermissionError:
+        return f"❌ 無讀取權限: {path}"
+    except Exception as e:
+        return f"❌ 讀取失敗: {e}"
+
+
+def list_directory(path: str) -> str:
+    """
+    列出指定目錄內容
+
+    Args:
+        path: 目錄路徑（絕對或相對路徑）
+
+    Returns:
+        目錄內容列表字串（含 [DIR] / [FILE] 標示），或錯誤訊息
+    """
+    try:
+        dir_path = Path(path).expanduser().resolve()
+        if not dir_path.exists():
+            return f"❌ 路徑不存在: {path}"
+        if not dir_path.is_dir():
+            return f"❌ 路徑不是目錄: {path}"
+
+        entries = []
+        for entry in sorted(dir_path.iterdir()):
+            tag = "[DIR] " if entry.is_dir() else "[FILE]"
+            entries.append(f"{tag} {entry.name}")
+
+        if not entries:
+            return f"（空目錄）{path}"
+        return "\n".join(entries)
+    except PermissionError:
+        return f"❌ 無讀取權限: {path}"
+    except Exception as e:
+        return f"❌ 列出目錄失敗: {e}"
+
+
+def search_files(pattern: str, directory: str = ".", file_glob: str = "*") -> str:
+    """
+    在目錄中搜尋包含指定 pattern 的行
+
+    Args:
+        pattern:    搜尋字串（支援 regex）
+        directory:  搜尋根目錄（預設當前目錄）
+        file_glob:  只搜尋符合此 glob 的檔案（預設 *，例如 *.ts）
+
+    Returns:
+        搜尋結果（格式：檔案路徑:行號: 內容），或錯誤訊息
+    """
+    try:
+        # 優先使用 ripgrep，其次 grep
+        cmd = ["rg", "--line-number", "--glob", file_glob, pattern, directory]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode in (0, 1):  # 1 = no matches
+            output = result.stdout.strip()
+            if not output:
+                return f"（無符合結果）pattern={pattern}, dir={directory}"
+            lines = output.split("\n")
+            if len(lines) > 50:
+                lines = lines[:50]
+                lines.append(f"... (截斷，顯示前 50 筆)")
+            return "\n".join(lines)
+    except FileNotFoundError:
+        pass  # rg 不存在，fallback 到 grep
+    except subprocess.TimeoutExpired:
+        return "❌ 搜尋超時"
+
+    try:
+        cmd = ["grep", "-rn", "--include", file_glob, pattern, directory]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        output = result.stdout.strip()
+        if not output:
+            return f"（無符合結果）pattern={pattern}, dir={directory}"
+        lines = output.split("\n")
+        if len(lines) > 50:
+            lines = lines[:50]
+            lines.append(f"... (截斷，顯示前 50 筆)")
+        return "\n".join(lines)
+    except subprocess.TimeoutExpired:
+        return "❌ 搜尋超時"
+    except Exception as e:
+        return f"❌ 搜尋失敗: {e}"
+
+
+def write_file(path: str, content: str) -> str:
+    """
+    寫入（或建立）檔案
+
+    Args:
+        path:    檔案路徑（絕對或相對路徑）
+        content: 檔案內容
+
+    Returns:
+        成功或錯誤訊息
+    """
+    try:
+        file_path = Path(path).expanduser().resolve()
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(content, encoding="utf-8")
+        return f"✅ 已寫入: {file_path} ({len(content)} bytes)"
+    except PermissionError:
+        return f"❌ 無寫入權限: {path}"
+    except Exception as e:
+        return f"❌ 寫入失敗: {e}"
+
+
+# ==========================================
+# 工具映射表
 # ==========================================
 
 TOOL_MAP = {
+    # 業務邏輯工具
     "run_typescript_check": run_typescript_check,
     "run_eslint": run_eslint,
     "run_behavior_validation": run_behavior_validation,
     "record_tech_debt": record_tech_debt,
+    # 檔案系統工具（Claude/OpenAI adapter 用）
+    "read_file": read_file,
+    "list_directory": list_directory,
+    "search_files": search_files,
+    "write_file": write_file,
 }

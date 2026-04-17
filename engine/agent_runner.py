@@ -50,6 +50,15 @@ TEST_TOOLS = [
     "run_behavior_validation",
 ]
 
+# init phase：探索目標專案、生成 config.yaml
+# Copilot adapter 已內建同等工具，這裡供 Claude/OpenAI 使用
+INIT_TOOLS = [
+    "read_file",
+    "list_directory",
+    "search_files",
+    "write_file",
+]
+
 
 # ==========================================
 # SDK 錯誤靜默（Copilot SDK 特有，其他 SDK 無影響）

@@ -265,7 +265,7 @@ class ProjectConfig(BaseModel):
         if not config_file.exists():
             raise FileNotFoundError(
                 f"Configuration file not found: {config_path}\n"
-                f"Please create a config file. See examples/ directory for templates."
+                f"Please create a config file. See projects/ directory for templates."
             )
         
         try:

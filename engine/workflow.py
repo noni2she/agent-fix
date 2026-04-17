@@ -31,6 +31,7 @@ from .agent_runner import (
     init_agent_runner,
     ANALYZE_IMPLEMENT_TOOLS,
     TEST_TOOLS,
+    INIT_TOOLS,
 )
 from .mcp_client import MCPClientManager
 from .tools import init_tools
@@ -424,6 +425,56 @@ Context:
             )
         else:
             print(f"\n  💀 Max retries ({max_retries}) reached, workflow terminated")
+
+
+async def run_init_workflow(project_path: str, output_path: str, issue_prefix: str):
+    """
+    Smart init：用 LLM agent 探索目標專案，自動生成 config.yaml。
+
+    Args:
+        project_path:  目標專案根目錄絕對路徑
+        output_path:   生成的 config.yaml 輸出路徑
+        issue_prefix:  Issue ID 前綴（如 BUG、PROJ）
+    """
+    import os
+
+    _, init_body = load_skill("project-init", SKILLS_DIR)
+
+    # Copilot SDK 已內建 read_file / glob / grep 等工具，不需要額外註冊
+    # Claude / OpenAI adapter 需要 INIT_TOOLS
+    sdk = os.getenv("SDK_ADAPTER", "copilot")
+    tool_names = [] if sdk == "copilot" else INIT_TOOLS
+
+    print("\n" + "=" * 60)
+    print("🚀 Agent Fix — Smart Project Init")
+    print(f"   Target : {project_path}")
+    print(f"   Output : {output_path}")
+    print(f"   SDK    : {sdk}")
+    print("=" * 60)
+
+    loop = asyncio.get_event_loop()
+    restore = setup_sdk_error_silencing(loop)
+
+    try:
+        _, session = await create_session(tool_names)
+
+        prompt = f"""{init_body}
+
+---
+
+## Task
+
+Analyze the project at the following path and generate a config.yaml.
+
+- **project_path**: `{project_path}`
+- **output_path**: `{output_path}`
+- **issue_prefix**: `{issue_prefix}`
+
+Follow the exploration steps in the skill above. Write the generated config.yaml to `{output_path}`.
+"""
+        await run_in_session(session, "init", prompt, max_tool_calls=30)
+    finally:
+        restore()
 
 
 async def run_workflow(issue_id: str):

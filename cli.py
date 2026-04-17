@@ -30,21 +30,11 @@ def create_parser() -> argparse.ArgumentParser:
     # init 命令
     init_parser = subparsers.add_parser(
         "init",
-        help="初始化專案配置"
+        help="自動偵測目標專案並生成 config.yaml"
     )
     init_parser.add_argument(
-        "--project-name",
-        required=True,
-        help="專案名稱 (例如: my-nextjs-app)"
-    )
-    init_parser.add_argument(
-        "--project-root",
-        required=True,
-        help="專案根目錄絕對路徑"
-    )
-    init_parser.add_argument(
-        "--workspace",
-        help="Monorepo 主 workspace 名稱 (例如: web, 如果是 monorepo)"
+        "project_path",
+        help="目標專案根目錄路徑 (例如: /path/to/my-app)"
     )
     init_parser.add_argument(
         "--issue-prefix",
@@ -56,12 +46,6 @@ def create_parser() -> argparse.ArgumentParser:
         "-o",
         default="./config.yaml",
         help="輸出配置檔案路徑 (預設: ./config.yaml)"
-    )
-    init_parser.add_argument(
-        "--template",
-        choices=["minimal", "full", "turborepo"],
-        default="minimal",
-        help="配置模板類型 (預設: minimal)"
     )
     
     # validate 命令
@@ -109,88 +93,38 @@ def create_parser() -> argparse.ArgumentParser:
 
 
 def command_init(args) -> int:
-    """初始化專案配置"""
-    from engine.config import ProjectConfig
-    
-    print("🚀 Bugfix Workflow - 初始化專案配置\n")
-    
-    # 驗證專案路徑
-    project_root = Path(args.project_root).resolve()
-    if not project_root.exists():
-        print(f"❌ 錯誤：專案路徑不存在: {project_root}")
+    """智慧初始化：用 LLM agent 探索專案，自動生成 config.yaml"""
+    import asyncio
+
+    project_path = Path(args.project_path).resolve()
+    if not project_path.exists():
+        print(f"❌ 錯誤：專案路徑不存在: {project_path}")
         return 1
-    
-    # 檢測專案類型
-    is_monorepo = (project_root / "apps").exists() or args.workspace
-    
-    print(f"📁 專案名稱: {args.project_name}")
-    print(f"📂 專案路徑: {project_root}")
-    print(f"🏗️  專案類型: {'Monorepo' if is_monorepo else '單一應用'}")
-    if args.workspace:
-        print(f"📦 Workspace: {args.workspace}")
-    print(f"🏷️  Issue 前綴: {args.issue_prefix}")
-    print()
-    
-    # 選擇模板
-    if args.template == "turborepo":
-        template_file = Path("examples/turborepo-nextjs.yaml")
-    else:
-        template_file = Path("config-template.yaml")
-    
-    if not template_file.exists():
-        print(f"❌ 錯誤：模板檔案不存在: {template_file}")
+    if not project_path.is_dir():
+        print(f"❌ 錯誤：路徑不是目錄: {project_path}")
         return 1
-    
-    # 讀取模板
-    with open(template_file, 'r', encoding='utf-8') as f:
-        config_content = f.read()
-    
-    # 替換變數
-    replacements = {
-        'my-nextjs-app': args.project_name,
-        'BUG': args.issue_prefix,
-        '{{workspace_root}}': str(project_root.parent),
-        'main-web': args.workspace or 'web',
-    }
-    
-    for old, new in replacements.items():
-        config_content = config_content.replace(old, new)
-    
-    # 如果不是 monorepo，移除 monorepo 相關配置
-    if not is_monorepo:
-        # 簡化配置
-        lines = config_content.split('\n')
-        filtered_lines = []
-        skip_monorepo = False
-        
-        for line in lines:
-            if line.strip().startswith('monorepo:'):
-                skip_monorepo = True
-                continue
-            if skip_monorepo and line and not line[0].isspace():
-                skip_monorepo = False
-            if not skip_monorepo:
-                filtered_lines.append(line)
-        
-        config_content = '\n'.join(filtered_lines)
-    
-    # 寫入輸出檔案
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(config_content)
-    
-    print(f"✅ 配置檔案已建立: {output_path}")
-    print()
-    print("📝 下一步：")
-    print(f"   1. 編輯配置檔案: {output_path}")
-    print(f"   2. 驗證配置: agent-fix validate {output_path}")
-    print(f"   3. 設定環境變數: export PROJECT_CONFIG={output_path}")
-    print(f"   4. 執行修復: python main.py <issue-id>")
-    print()
-    
-    return 0
+
+    output_path = Path(args.output).resolve()
+
+    try:
+        from engine.workflow import run_init_workflow
+        asyncio.run(run_init_workflow(
+            project_path=str(project_path),
+            output_path=str(output_path),
+            issue_prefix=args.issue_prefix.upper(),
+        ))
+        print()
+        print("📝 下一步：")
+        print(f"   1. 確認配置檔案: {output_path}")
+        print(f"   2. 驗證配置: agent-fix validate {output_path}")
+        print(f"   3. 設定環境變數: export PROJECT_CONFIG={output_path}")
+        print(f"   4. 執行修復: agent-fix run <issue-id> --config {output_path}")
+        return 0
+    except Exception as e:
+        print(f"❌ 初始化失敗: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
 def command_validate(args) -> int:

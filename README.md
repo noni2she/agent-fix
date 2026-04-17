@@ -19,7 +19,7 @@ agent-fix/
 ├── cli.py                     # CLI 入口（agent-fix / afix 指令）
 ├── main.py                    # 向後相容 shim（python main.py <id>）
 ├── config-template.yaml       # 專案配置範本
-├── examples/                  # 配置範例
+├── projects/                  # 配置範例
 │   ├── turborepo-nextjs.yaml  # Turborepo + Yarn Workspace
 │   └── minimal-nextjs.yaml    # 單一 Next.js 專案
 ├── engine/
