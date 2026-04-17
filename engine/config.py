@@ -137,6 +137,13 @@ class BehaviorValidationConfig(BaseModel):
     )
 
 
+class MCPServerConfig(BaseModel):
+    """MCP server 配置"""
+    command: str = Field(description="啟動 MCP server 的命令（如 npx）")
+    args: List[str] = Field(default=[], description="命令參數")
+    enabled: bool = Field(default=True, description="是否啟用")
+
+
 class SkillsConfig(BaseModel):
     """Skills 配置"""
     directories: List[str] = Field(
@@ -201,6 +208,18 @@ class ProjectConfig(BaseModel):
     behavior_validation: BehaviorValidationConfig = Field(
         default_factory=BehaviorValidationConfig,
         description="行為驗證配置（Playwright）"
+    )
+    mcp_servers: Dict[str, MCPServerConfig] = Field(
+        default_factory=dict,
+        description=(
+            "MCP server 配置（key 為 server 名稱）。\n"
+            "啟用的 server 會在 bugfix-analyze 階段注入給 LLM agent。\n"
+            "範例：\n"
+            "  chrome-devtools:\n"
+            "    command: npx\n"
+            "    args: [\"-y\", \"chrome-devtools-mcp@latest\"]\n"
+            "    enabled: true"
+        )
     )
     dev_server: Optional[Dict[str, Any]] = Field(
         default={"port": 3001, "command": None},

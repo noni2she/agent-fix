@@ -118,3 +118,9 @@ behavior_validation:
   workspace: "web"     # Monorepo workspace（dev_server.command 已設定時此欄僅供參考）
   headless: true       # Agent 自動執行用 true；本地 debug 可改 false
   channel: null        # null = Playwright 自帶 Chromium（自動安裝）；"chrome" = 系統 Chrome
+
+mcp_servers:
+  chrome-devtools:
+    command: npx
+    args: ["-y", "chrome-devtools-mcp@latest"]
+    enabled: true      # bugfix-analyze 階段啟用瀏覽器 debug 能力

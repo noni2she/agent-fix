@@ -32,6 +32,7 @@ from .agent_runner import (
     ANALYZE_IMPLEMENT_TOOLS,
     TEST_TOOLS,
 )
+from .mcp_client import MCPClientManager
 from .tools import init_tools
 
 # skills/ 目錄路徑：相對於此檔案，往上一層再進 skills/
@@ -273,10 +274,19 @@ async def _execute_workflow(issue_id: str, config: ProjectConfig, project_root: 
     print(f"{'=' * 60}")
 
     # ----------------------------------------
+    # 建立 MCP manager（analyze phase 使用）
+    # ----------------------------------------
+    enabled_mcp = {k: v for k, v in config.mcp_servers.items() if v.enabled}
+    mcp_manager = None
+    if enabled_mcp:
+        print("\n🔌 啟動 MCP servers (analyze phase)...")
+        mcp_manager = await MCPClientManager.create(enabled_mcp)
+
+    # ----------------------------------------
     # 建立主 session（analyze + implement 共用）
     # ----------------------------------------
     print("\n🔧 建立主 session (analyze + implement)...")
-    _, main_session = await create_session(ANALYZE_IMPLEMENT_TOOLS)
+    _, main_session = await create_session(ANALYZE_IMPLEMENT_TOOLS, mcp_manager=mcp_manager)
 
     # ----------------------------------------
     # Phase 1: bugfix-analyze
@@ -302,6 +312,8 @@ Project root: {project_root}
     print(f"\n  📊 Analyze status: {status}")
     if status != "confirmed":
         print(f"\n  ❌ Analysis not confirmed (status={status}), workflow terminated")
+        if mcp_manager:
+            await mcp_manager.stop()
         return
 
     # ----------------------------------------
@@ -328,6 +340,12 @@ Read issues/reports/{issue_id}/analyze.md for the fix strategy and root cause.
 Project Context (commands & paths):
 {project_context}"""
     await run_in_session(main_session, "implement", implement_msg, max_tool_calls=30)
+
+    # MCP servers 只在 analyze + implement 階段使用，test phase 前關閉
+    if mcp_manager:
+        await mcp_manager.stop()
+        mcp_manager = None
+        print("\n🔌 MCP servers stopped")
 
     # ----------------------------------------
     # Phase 3: bugfix-test（每次 fork 新 session）

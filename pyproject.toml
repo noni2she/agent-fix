@@ -16,6 +16,7 @@ dependencies = [
     "requests>=2.32.5",
     "click>=8.1.0",            # CLI 工具
     "playwright>=1.40.0",      # behavior_validation Phase 4 瀏覽器自動化
+    "mcp>=1.0.0",
 ]
 
 [project.optional-dependencies]

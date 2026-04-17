@@ -27,6 +27,7 @@ class ClaudeNativeSession:
     model: str
     tools: List[dict]                   # Anthropic tool schema 格式
     messages: List[dict] = field(default_factory=list)
+    mcp_manager: Any = None             # MCPClientManager（可選）
 
 
 class ClaudeAdapter(AgentAdapter):
@@ -53,12 +54,18 @@ class ClaudeAdapter(AgentAdapter):
         self,
         tool_names: List[str],
         model: str,
+        mcp_manager: Any = None,
     ) -> AgentSession:
         if self._client is None:
             await self.start()
 
         claude_tools = self._build_claude_tools(tool_names)
-        native = ClaudeNativeSession(model=model, tools=claude_tools)
+        if mcp_manager:
+            for name in mcp_manager.get_tool_names():
+                schema = mcp_manager.get_tool_schema_for_claude(name)
+                if schema:
+                    claude_tools.append(schema)
+        native = ClaudeNativeSession(model=model, tools=claude_tools, mcp_manager=mcp_manager)
         return AgentSession(adapter=self, native=native)
 
     async def send(
@@ -135,7 +142,7 @@ class ClaudeAdapter(AgentAdapter):
                 for block in response.content:
                     if block.type == "tool_use":
                         session.emit(AgentEvent(type="tool_start", tool_name=block.name))
-                        result = self._execute_tool(block.name, dict(block.input))
+                        result = self._execute_tool(block.name, dict(block.input), native)
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": block.id,
@@ -145,7 +152,9 @@ class ClaudeAdapter(AgentAdapter):
 
         session.emit(AgentEvent(type="idle"))
 
-    def _execute_tool(self, tool_name: str, args: dict) -> str:
+    def _execute_tool(self, tool_name: str, args: dict, native: ClaudeNativeSession = None) -> str:
+        if native and native.mcp_manager and native.mcp_manager.is_mcp_tool(tool_name):
+            return native.mcp_manager.call_tool_sync(tool_name, args)
         if tool_name not in TOOL_MAP:
             return f"❌ Unknown tool: {tool_name}"
         try:

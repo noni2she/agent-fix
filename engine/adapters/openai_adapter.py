@@ -58,10 +58,13 @@ class OpenAIAdapter(AgentAdapter):
         self,
         tool_names: List[str],
         model: str,
+        mcp_manager: Any = None,
     ) -> AgentSession:
         from agents import Agent
 
         openai_tools = self._build_openai_tools(tool_names)
+        if mcp_manager:
+            openai_tools.extend(self._build_openai_mcp_tools(mcp_manager))
 
         agent = Agent(
             name="bugfix-agent",
@@ -142,6 +145,27 @@ class OpenAIAdapter(AgentAdapter):
                 on_invoke_tool=self._make_invoke_handler(name),
             ))
         return tools
+
+    def _build_openai_mcp_tools(self, mcp_manager: Any) -> list:
+        from agents import FunctionTool
+
+        tools = []
+        for name in mcp_manager.get_tool_names():
+            schema = mcp_manager.get_tool_input_schema(name)
+            tools.append(FunctionTool(
+                name=name,
+                description=mcp_manager.get_tool_description(name),
+                params_json_schema=schema or {"type": "object", "properties": {}},
+                on_invoke_tool=self._make_mcp_invoke_handler(name, mcp_manager),
+            ))
+        return tools
+
+    def _make_mcp_invoke_handler(self, tool_name: str, mcp_manager: Any):
+        async def invoke(ctx, input_json: str) -> str:
+            import json
+            args = json.loads(input_json) if isinstance(input_json, str) else input_json
+            return await mcp_manager.call_tool(tool_name, args)
+        return invoke
 
     def _make_invoke_handler(self, tool_name: str):
         func = TOOL_MAP[tool_name]

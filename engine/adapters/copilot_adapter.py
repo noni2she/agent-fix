@@ -37,11 +37,14 @@ class CopilotAdapter(AgentAdapter):
         self,
         tool_names: List[str],
         model: str,
+        mcp_manager: Any = None,
     ) -> AgentSession:
         if self._client is None:
             await self.start()
 
         copilot_tools = self._build_copilot_tools(tool_names)
+        if mcp_manager:
+            copilot_tools.extend(self._build_copilot_mcp_tools(mcp_manager))
 
         config: dict[str, Any] = {"model": model}
         if copilot_tools:
@@ -92,6 +95,26 @@ class CopilotAdapter(AgentAdapter):
             ))
 
         return tools
+
+    def _build_copilot_mcp_tools(self, mcp_manager: Any) -> list:
+        from copilot import Tool
+
+        tools = []
+        for name in mcp_manager.get_tool_names():
+            tools.append(Tool(
+                name=name,
+                description=mcp_manager.get_tool_description(name),
+                handler=self._make_mcp_handler(name, mcp_manager),
+                parameters=mcp_manager.get_tool_input_schema(name),
+            ))
+        return tools
+
+    def _make_mcp_handler(self, tool_name: str, mcp_manager: Any):
+        async def handler(invocation):
+            args = invocation.get("arguments", {}) if isinstance(invocation, dict) else {}
+            result = await mcp_manager.call_tool(tool_name, args)
+            return {"textResultForLlm": result, "resultType": "success"}
+        return handler
 
     def _make_handler(self, tool_name: str):
         func = TOOL_MAP[tool_name]

@@ -132,3 +132,17 @@ behavior_validation:
   channel: null        # null = 使用 Playwright 自帶 Chromium（首次執行自動安裝）
                        # "chrome"  = 使用系統 Google Chrome（已裝則免額外安裝）
                        # "msedge"  = 使用系統 Microsoft Edge
+
+# ============================================
+# MCP Server 配置（bugfix-analyze 階段使用）
+# ============================================
+# 啟用後，LLM agent 在 analyze 階段可呼叫 MCP tools 做瀏覽器 debug
+# （navigate_page / list_console_messages / list_network_requests 等）
+# 前提：dev server 需已啟動，且執行環境安裝有 Node.js + npx
+mcp_servers: {}
+# 範例（取消註解以啟用）：
+# mcp_servers:
+#   chrome-devtools:
+#     command: npx
+#     args: ["-y", "chrome-devtools-mcp@latest"]
+#     enabled: true

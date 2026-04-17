@@ -98,13 +98,16 @@ class AgentAdapter(ABC):
         self,
         tool_names: List[str],
         model: str,
+        mcp_manager: Optional[Any] = None,
     ) -> AgentSession:
         """
         建立新的 agent session。
 
         Args:
-            tool_names: 要啟用的自訂工具名稱列表（來自 TOOL_MAP）
-            model:      要使用的模型 ID（各 SDK 格式不同）
+            tool_names:  要啟用的自訂工具名稱列表（來自 TOOL_MAP）
+            model:       要使用的模型 ID（各 SDK 格式不同）
+            mcp_manager: MCPClientManager 實例（可選）。
+                         傳入時，MCP tools 會注入給 LLM；None 表示不使用 MCP。
 
         Returns:
             AgentSession 封裝物件
