@@ -62,17 +62,15 @@ Issue 可能為兩種格式：
 
 #### 0.4 瀏覽器驗證（互動類問題）
 
-當問題涉及 UI 互動、頁面導航、或靜態閱讀無法確認時，使用 **Chrome DevTools MCP** 在真實瀏覽器中探索：
-
-> 切換到 `chrome-devtools` skill（`/chrome-devtools`）進行以下操作：
+當問題涉及 UI 互動、頁面導航、或靜態閱讀無法確認時，使用可用的**瀏覽器 MCP 工具**在真實瀏覽器中觀察 runtime 行為：
 
 1. 確認 dev server 是否運行中（參考 Project Context 的啟動命令）
-2. `navigate_page` 打開問題頁面，按照 `reproduction_steps` 逐步操作（click / fill / press_key）
-3. `list_console_messages` 過濾 type=error，找 runtime exception
-4. `list_network_requests` 找失敗的 API（4xx / 5xx）
-5. `evaluate_script` 驗證可疑邏輯的假設
+2. `navigate_page` 打開問題頁面，按照 `reproduction_steps` 逐步操作（`click` / `fill` / `press_key`）
+3. `list_console_messages` 找 type=error 的 runtime exception
+4. `list_network_requests` 找失敗的 API（4xx / 5xx），必要時用 `get_network_request` 看 payload
+5. `evaluate_script` 驗證可疑邏輯假設（如檢查 DOM 屬性、state 值）
 6. `take_screenshot` 記錄存入 `issues/reports/<issue-id>/reproduction.png`
-7. 整理探索結果（console errors / API failures / JS 驗證）回報給分析流程
+7. 整理觀察結果：console errors / API failures / JS 驗證，帶入 Step 1–4 分析
 
 #### 0.5 根據結果決定後續動作
 
