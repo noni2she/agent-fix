@@ -1,17 +1,15 @@
 """
-GitHub Copilot SDK Adapter
-
-將現有的 Copilot SDK 邏輯封裝為 AgentAdapter 介面。
+GitHub Copilot SDK Adapter (v0.2.x)
 
 Copilot SDK 特性：
 - 事件驅動（SDK 管理 agentic loop）
 - session.on(handler) 訂閱原始事件
-- session.send({"prompt": ...}) 發送訊息
-- 工具 handler 格式: async def handler(invocation) -> {"textResultForLlm": ..., "resultType": ...}
+- session.send(prompt) 發送訊息（v0.2+ 直接傳字串）
+- 工具 handler 格式: async def handler(invocation: ToolInvocation) -> ToolResult
 """
 import inspect
 import asyncio
-from typing import Any, Callable, List
+from typing import Any, List
 
 from .base import AgentAdapter, AgentEvent, AgentSession
 from ..tools import TOOL_MAP
@@ -19,7 +17,7 @@ from ..tools import TOOL_MAP
 
 class CopilotAdapter(AgentAdapter):
     """
-    GitHub Copilot SDK adapter。
+    GitHub Copilot SDK adapter（相容 v0.2.x）。
 
     安裝：pip install github-copilot-sdk
     文件：https://github.com/github/copilot-sdk
@@ -39,6 +37,8 @@ class CopilotAdapter(AgentAdapter):
         model: str,
         mcp_manager: Any = None,
     ) -> AgentSession:
+        from copilot.session import PermissionHandler
+
         if self._client is None:
             await self.start()
 
@@ -46,11 +46,11 @@ class CopilotAdapter(AgentAdapter):
         if mcp_manager:
             copilot_tools.extend(self._build_copilot_mcp_tools(mcp_manager))
 
-        config: dict[str, Any] = {"model": model}
-        if copilot_tools:
-            config["tools"] = copilot_tools
-
-        native = await self._client.create_session(config)  # type: ignore
+        native = await self._client.create_session(
+            on_permission_request=PermissionHandler.approve_all,
+            model=model,
+            tools=copilot_tools if copilot_tools else None,
+        )
         session = AgentSession(adapter=self, native=native)
 
         # 訂閱 Copilot 原始事件，轉換為標準化 AgentEvent
@@ -67,18 +67,38 @@ class CopilotAdapter(AgentAdapter):
         """
         發送訊息給 Copilot session。
 
-        Copilot SDK 的 agentic loop 由 SDK 自行管理，
-        send() 只需把訊息傳進去，事件會透過 native.on() 的
-        handler 自動觸發。
+        v0.2+ send() 直接接受字串 prompt，不再需要包成 dict。
         """
-        await native_session.send({"prompt": message})
+        await native_session.send(message)
 
     # ==========================================
     # 工具建立
     # ==========================================
 
+    def _build_copilot_mcp_tools(self, mcp_manager: Any) -> list:
+        from copilot.tools import Tool, ToolResult
+
+        tools = []
+        for name in mcp_manager.get_tool_names():
+            tools.append(Tool(
+                name=name,
+                description=mcp_manager.get_tool_description(name),
+                handler=self._make_mcp_handler(name, mcp_manager),
+                parameters=mcp_manager.get_tool_input_schema(name),
+            ))
+        return tools
+
+    def _make_mcp_handler(self, tool_name: str, mcp_manager: Any):
+        from copilot.tools import ToolResult
+
+        async def handler(invocation):
+            args = invocation.arguments or {} if hasattr(invocation, "arguments") else {}
+            result = await mcp_manager.call_tool(tool_name, args)
+            return ToolResult(text_result_for_llm=str(result), result_type="success")
+        return handler
+
     def _build_copilot_tools(self, tool_names: List[str]) -> list:
-        from copilot import Tool
+        from copilot.tools import Tool
 
         tools = []
         for name in tool_names:
@@ -96,39 +116,21 @@ class CopilotAdapter(AgentAdapter):
 
         return tools
 
-    def _build_copilot_mcp_tools(self, mcp_manager: Any) -> list:
-        from copilot import Tool
-
-        tools = []
-        for name in mcp_manager.get_tool_names():
-            tools.append(Tool(
-                name=name,
-                description=mcp_manager.get_tool_description(name),
-                handler=self._make_mcp_handler(name, mcp_manager),
-                parameters=mcp_manager.get_tool_input_schema(name),
-            ))
-        return tools
-
-    def _make_mcp_handler(self, tool_name: str, mcp_manager: Any):
-        async def handler(invocation):
-            args = invocation.get("arguments", {}) if isinstance(invocation, dict) else {}
-            result = await mcp_manager.call_tool(tool_name, args)
-            return {"textResultForLlm": result, "resultType": "success"}
-        return handler
-
     def _make_handler(self, tool_name: str):
+        from copilot.tools import ToolResult
+
         func = TOOL_MAP[tool_name]
 
         async def handler(invocation):
             print(f"  🔧 執行工具: {tool_name}")
             try:
-                args = invocation.get("arguments", {}) if isinstance(invocation, dict) else {}
+                args = invocation.arguments or {} if hasattr(invocation, "arguments") else {}
                 result = func(**args)
-                return {"textResultForLlm": str(result), "resultType": "success"}
+                return ToolResult(text_result_for_llm=str(result), result_type="success")
             except Exception as e:
                 error_msg = f"{tool_name} 執行錯誤: {str(e)}"
                 print(f"  ❌ {error_msg}")
-                return {"textResultForLlm": error_msg, "resultType": "error"}
+                return ToolResult(text_result_for_llm=error_msg, result_type="failure")
 
         return handler
 
@@ -139,37 +141,24 @@ class CopilotAdapter(AgentAdapter):
     def _normalize_event(self, event: Any, session: AgentSession) -> None:
         """將 Copilot SDK 原始事件轉換為 AgentEvent"""
         try:
-            event_type = event.type.value if hasattr(event.type, "value") else str(event.type)
+            from copilot.generated.session_events import SessionEventType
 
-            if event_type == "assistant.message":
+            event_type = event.type
+
+            if event_type == SessionEventType.ASSISTANT_MESSAGE:
                 content = getattr(event.data, "content", None) if hasattr(event, "data") else None
-                if content:
+                if content and isinstance(content, str):
                     session.emit(AgentEvent(type="message", content=content))
 
-            elif event_type == "tool.execution_start":
-                tool_name = self._extract_tool_name(event)
+            elif event_type == SessionEventType.EXTERNAL_TOOL_REQUESTED:
+                tool_name = getattr(event.data, "tool_name", None) or "Unknown"
                 session.emit(AgentEvent(type="tool_start", tool_name=tool_name))
 
-            elif event_type == "session.idle":
+            elif event_type == SessionEventType.SESSION_IDLE:
                 session.emit(AgentEvent(type="idle"))
 
         except Exception:
             pass
-
-    def _extract_tool_name(self, event: Any) -> str:
-        try:
-            if hasattr(event, "data"):
-                d = event.data
-                if hasattr(d, "tool_name") and d.tool_name:
-                    return d.tool_name
-                if hasattr(d, "tool_requests") and d.tool_requests:
-                    req = d.tool_requests[0]
-                    return getattr(req, "name", None) or (req.get("name") if isinstance(req, dict) else None) or "Unknown"
-                if hasattr(d, "name") and d.name:
-                    return d.name
-        except Exception:
-            pass
-        return "Unknown"
 
     @staticmethod
     def _extract_parameters(func) -> dict:
