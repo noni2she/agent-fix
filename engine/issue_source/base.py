@@ -53,12 +53,17 @@ class IssueSourceAdapter(ABC):
         """
         pass
 
-    def list_all(self) -> list[str]:
+    def list_all(self, filter: str | None = None) -> list[str]:
         """
         列出所有可處理的 issue ID，供批次執行使用。
 
+        Args:
+            filter: 可選篩選條件，各 adapter 解讀方式不同：
+                    - JiraAdapter: 附加 JQL 條件（AND 串接到 jql_base）
+                    - 其他 adapter: 忽略（由呼叫端做 fnmatch 篩選）
+
         Returns:
-            issue ID 列表（如 ["BUG-001", "BUG-002"]）
+            issue ID 列表
 
         Raises:
             IssueSourceError: 來源存取失敗

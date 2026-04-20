@@ -424,14 +424,18 @@ def command_batch(args) -> int:
         adapter = create_adapter(config.issue_source)
         adapter.validate()
 
-        issue_ids = adapter.list_all()
+        is_jira = config.issue_source.type == "jira"
+
+        # Jira: --filter 作為 JQL 傳入 list_all()，由 adapter 串接
+        # 其他:  list_all() 回傳全部，再用 fnmatch 篩選
+        issue_ids = adapter.list_all(filter=args.filter if is_jira else None)
 
         if not issue_ids:
             print("⚠️  沒有找到任何 Issue")
             return 0
 
-        # 套用 --filter
-        if args.filter:
+        # 非 Jira：套用 fnmatch --filter
+        if args.filter and not is_jira:
             issue_ids = [i for i in issue_ids if fnmatch.fnmatch(i, args.filter)]
             if not issue_ids:
                 print(f"⚠️  沒有符合 '{args.filter}' 的 Issue")
