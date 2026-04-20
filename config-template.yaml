@@ -98,12 +98,29 @@ coding_standards:
 # Issue 來源配置
 # ============================================
 issue_source:
-  type: local_json  # 內建預設：從 issues/sources/<id>.json 讀取
-  options: {}       # local_json 可設定 sources_dir: "issues/sources"
+  type: local_json  # 選項: local_json | jira | google_sheets
+  options: {}
 
-  # 自訂 Adapter 範例（如 Jira）：
-  # 繼承 IssueSourceAdapter 實作 fetch()，並在 workflow.py 中直接建立實例。
-  # type 欄位可填入自訂名稱作為識別，但路由邏輯需在程式碼中自行處理。
+  # ── local_json（預設）─────────────────────────────────────────────
+  # type: local_json
+  # options:
+  #   sources_dir: "issues/sources"  # 預設值，可省略
+
+  # ── Jira ─────────────────────────────────────────────────────────
+  # type: jira
+  # options:
+  #   jql_base: "project = PROJ AND assignee = currentUser() AND status = 'To Do'"
+  # 認證請設定環境變數（.env）：
+  #   JIRA_BASE_URL=https://your-company.atlassian.net
+  #   JIRA_USER_EMAIL=your@email.com
+  #   JIRA_API_TOKEN=...
+
+  # ── Google Sheets ─────────────────────────────────────────────────
+  # type: google_sheets
+  # options:
+  #   sheet_url: "https://docs.google.com/spreadsheets/d/SHEET_ID/..."
+  #   credentials_file: "./service_account.json"  # 或設定 GOOGLE_API_KEY 環境變數
+  #   worksheet: "Sheet1"  # 可省略，預設第一個工作表
 
 # ============================================
 # Skills 配置

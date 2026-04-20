@@ -112,6 +112,45 @@
 }
 ```
 
+## Jira 批次輸入
+
+如果使用 `issue_source.type: jira`，agent 直接從 Jira API 讀取，不需要本地 JSON 檔案。
+
+**設定方式**
+
+1. 在 `.env` 設定認證（一次即可）：
+
+```bash
+JIRA_BASE_URL=https://your-company.atlassian.net
+JIRA_USER_EMAIL=your@email.com
+JIRA_API_TOKEN=...  # https://id.atlassian.com/manage-profile/security/api-tokens
+```
+
+2. 在 `config.yaml` 設定 JQL：
+
+```yaml
+issue_source:
+  type: jira
+  options:
+    jql_base: "project = PROJ AND assignee = currentUser() AND status = 'To Do'"
+```
+
+3. 執行：
+
+```bash
+# 用 jql_base 條件批次修復
+agent-fix batch --config ./projects/my-project.yaml
+
+# 附加本次 sprint / 版本條件（AND 串接）
+agent-fix batch --config ./projects/my-project.yaml --filter "sprint = 'Sprint 10'"
+agent-fix batch --config ./projects/my-project.yaml --filter "fixVersion = '1.2.0'"
+
+# 預覽清單不執行
+agent-fix batch --config ./projects/my-project.yaml --dry-run
+```
+
+---
+
 ## Google Sheets 批次輸入
 
 如果使用 `issue_source.type: google_sheets`，請以 `issues/SHEETS_TEMPLATE.csv` 建立試算表：

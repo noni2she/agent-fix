@@ -135,7 +135,9 @@ def _interactive_setup(output_path: Path) -> None:
     config["issue_source"]["type"] = issue_type
 
     if issue_type == "jira":
-        config["issue_source"]["options"] = {}
+        config["issue_source"]["options"] = _setup_jira(
+            config.get("issue_source", {}).get("options", {})
+        )
         _check_jira_env()
 
     if issue_type == "google_sheets":
@@ -173,6 +175,32 @@ def _interactive_setup(output_path: Path) -> None:
         yaml.dump(config, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
 
     print(f"\n✅ 設定已更新: {output_path}")
+
+
+def _setup_jira(current_opts: dict) -> dict:
+    """互動式設定 Jira 來源，設定 jql_base（可跳過）。"""
+    print("\n  🎯 Jira 設定（直接按 Enter 跳過，之後再補填）")
+
+    current_jql = current_opts.get("jql_base", "")
+    jql = input(f"  ? jql_base JQL [{current_jql or '留空跳過'}]: ").strip()
+    jql_base = jql or current_jql
+
+    opts: dict = {}
+    if jql_base:
+        opts["jql_base"] = jql_base
+    else:
+        print("\n  ⚠️  尚未設定 jql_base，請之後在 config.yaml 補填：")
+        print("       issue_source:")
+        print("         type: jira")
+        print("         options:")
+        print('           jql_base: "project = PROJ AND assignee = currentUser() AND status = \'To Do\'"')
+
+    print("\n  ℹ️  Jira 認證需在 .env 設定（公司層級，設定一次即可）：")
+    print("     JIRA_BASE_URL=https://your-company.atlassian.net")
+    print("     JIRA_USER_EMAIL=your@email.com")
+    print("     JIRA_API_TOKEN=...  # https://id.atlassian.com/manage-profile/security/api-tokens")
+
+    return opts
 
 
 def _check_jira_env() -> None:

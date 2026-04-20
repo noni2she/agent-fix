@@ -126,8 +126,9 @@ class GoogleSheetsAdapter(IssueSourceAdapter):
             data["issue_id"] = issue_id
             self._cache[issue_id] = data
 
-    def list_all(self) -> list[str]:
-        """讀取試算表、快取所有 issues，回傳 issue ID 列表。"""
+    def list_all(self, filter: str | None = None) -> list[str]:
+        """讀取試算表、快取所有 issues，回傳 issue ID 列表。
+        filter 參數由呼叫端（command_batch）做 fnmatch 處理，此處忽略。"""
         print("📊 Reading issues from Google Sheets...")
         self._cache.clear()
         self._load()

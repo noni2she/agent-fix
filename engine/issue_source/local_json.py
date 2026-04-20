@@ -61,9 +61,10 @@ class LocalJsonAdapter(IssueSourceAdapter):
 
         return data
 
-    def list_all(self) -> list[str]:
+    def list_all(self, filter: str | None = None) -> list[str]:
         """
         掃描 sources_dir，回傳所有 issue ID（*.json 檔名去掉副檔名）。
+        filter 參數由呼叫端（command_batch）做 fnmatch 處理，此處忽略。
 
         Returns:
             issue ID 列表（依檔名排序）
