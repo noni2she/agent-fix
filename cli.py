@@ -92,6 +92,82 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _interactive_setup(output_path: Path) -> None:
+    """LLM 生成 yaml 後，互動式引導補齊三個無法自動偵測的設定。"""
+    import yaml
+
+    print("\n" + "─" * 50)
+    print("⚙️  專案設定引導（按 Enter 使用預設值）")
+    print("─" * 50)
+
+    with open(output_path, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+
+    # ── 1. Issue 來源 ──────────────────────────────
+    current_type = config.get("issue_source", {}).get("type", "local_json")
+    answer = input(f"\n? Issue 來源 (jira/local_json) [{current_type}]: ").strip().lower()
+    issue_type = answer if answer in ("jira", "local_json") else current_type
+
+    if "issue_source" not in config:
+        config["issue_source"] = {}
+    config["issue_source"]["type"] = issue_type
+
+    if issue_type == "jira":
+        config["issue_source"]["options"] = {}
+        _check_jira_env()
+
+    # ── 2. Playwright 行為驗證 ─────────────────────
+    current_bv = config.get("behavior_validation", {}).get("enabled", False)
+    default_bv = "y" if current_bv else "n"
+    answer = input(f"\n? 啟用 Playwright 行為驗證 (y/n) [{default_bv}]: ").strip().lower()
+    bv_enabled = (answer == "y") if answer in ("y", "n") else current_bv
+
+    if "behavior_validation" not in config:
+        config["behavior_validation"] = {}
+    config["behavior_validation"]["enabled"] = bv_enabled
+
+    # ── 3. Chrome DevTools MCP ─────────────────────
+    current_mcp = config.get("mcp_servers", {}).get("chrome-devtools", {}).get("enabled", False)
+    default_mcp = "y" if current_mcp else "n"
+    answer = input(f"\n? 啟用 Chrome DevTools MCP (y/n) [{default_mcp}]: ").strip().lower()
+    mcp_enabled = (answer == "y") if answer in ("y", "n") else current_mcp
+
+    if "mcp_servers" not in config:
+        config["mcp_servers"] = {}
+    if "chrome-devtools" not in config["mcp_servers"]:
+        config["mcp_servers"]["chrome-devtools"] = {
+            "command": "npx",
+            "args": ["-y", "chrome-devtools-mcp@latest"],
+        }
+    config["mcp_servers"]["chrome-devtools"]["enabled"] = mcp_enabled
+
+    # ── 寫回 yaml ──────────────────────────────────
+    with open(output_path, 'w', encoding='utf-8') as f:
+        yaml.dump(config, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+
+    print(f"\n✅ 設定已更新: {output_path}")
+
+
+def _check_jira_env() -> None:
+    """檢查 JIRA 環境變數是否已設定，若無則提示。"""
+    import os
+    from pathlib import Path
+
+    # 嘗試讀取 .env
+    env_file = Path(".env")
+    env_content = env_file.read_text() if env_file.exists() else ""
+
+    required = ["JIRA_BASE_URL", "JIRA_USER_EMAIL", "JIRA_API_TOKEN"]
+    missing = [k for k in required if not os.getenv(k) and k not in env_content]
+
+    if missing:
+        print("\n  ⚠️  請在 .env 設定以下 Jira 環境變數（公司層級，設定一次即可）：")
+        for k in missing:
+            print(f"     {k}=...")
+    else:
+        print("\n  ✅ Jira 環境變數已設定")
+
+
 def command_init(args) -> int:
     """智慧初始化：用 LLM agent 探索專案，自動生成 config.yaml"""
     import asyncio
@@ -113,12 +189,14 @@ def command_init(args) -> int:
             output_path=str(output_path),
             issue_prefix=args.issue_prefix.upper(),
         ))
+
+        _interactive_setup(output_path)
+
         print()
         print("📝 下一步：")
-        print(f"   1. 確認配置檔案: {output_path}")
-        print(f"   2. 驗證配置: agent-fix validate {output_path}")
-        print(f"   3. 設定環境變數: export PROJECT_CONFIG={output_path}")
-        print(f"   4. 執行修復: agent-fix run <issue-id> --config {output_path}")
+        print(f"   1. 驗證配置: agent-fix validate {output_path}")
+        print(f"   2. 設定環境變數: export PROJECT_CONFIG={output_path}")
+        print(f"   3. 執行修復: agent-fix run <issue-id> --config {output_path}")
         return 0
     except Exception as e:
         print(f"❌ 初始化失敗: {e}")
