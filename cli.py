@@ -127,8 +127,8 @@ def _interactive_setup(output_path: Path) -> None:
 
     # ── 1. Issue 來源 ──────────────────────────────
     current_type = config.get("issue_source", {}).get("type", "local_json")
-    answer = input(f"\n? Issue 來源 (jira/local_json) [{current_type}]: ").strip().lower()
-    issue_type = answer if answer in ("jira", "local_json") else current_type
+    answer = input(f"\n? Issue 來源 (jira/local_json/google_sheets) [{current_type}]: ").strip().lower()
+    issue_type = answer if answer in ("jira", "local_json", "google_sheets") else current_type
 
     if "issue_source" not in config:
         config["issue_source"] = {}
@@ -137,6 +137,11 @@ def _interactive_setup(output_path: Path) -> None:
     if issue_type == "jira":
         config["issue_source"]["options"] = {}
         _check_jira_env()
+
+    if issue_type == "google_sheets":
+        config["issue_source"]["options"] = _setup_google_sheets(
+            config.get("issue_source", {}).get("options", {})
+        )
 
     # ── 2. Playwright 行為驗證 ─────────────────────
     current_bv = config.get("behavior_validation", {}).get("enabled", False)
@@ -188,6 +193,54 @@ def _check_jira_env() -> None:
             print(f"     {k}=...")
     else:
         print("\n  ✅ Jira 環境變數已設定")
+
+
+def _setup_google_sheets(current_opts: dict) -> dict:
+    """互動式設定 Google Sheets 來源，允許跳過（之後在 config.yaml 補填）。"""
+    from pathlib import Path
+
+    print("\n  📊 Google Sheets 設定（直接按 Enter 跳過，之後再補填）")
+
+    # ── sheet_url ──────────────────────────────────
+    current_url = current_opts.get("sheet_url", "")
+    url = input(f"  ? Sheet URL [{current_url or '留空跳過'}]: ").strip()
+    sheet_url = url or current_url
+
+    # ── 認證方式 ───────────────────────────────────
+    current_creds = current_opts.get("credentials_file", "")
+    creds = input(f"  ? Service account JSON 路徑 [{current_creds or '留空跳過'}]: ").strip()
+    credentials_file = creds or current_creds or None
+
+    opts: dict = {}
+    if sheet_url:
+        opts["sheet_url"] = sheet_url
+    else:
+        opts["sheet_url"] = ""
+        print("\n  ⚠️  尚未設定 Sheet URL，請之後在 config.yaml 補填：")
+        print("       issue_source:")
+        print("         type: google_sheets")
+        print("         options:")
+        print("           sheet_url: \"https://docs.google.com/spreadsheets/d/...\"")
+
+    if credentials_file:
+        opts["credentials_file"] = credentials_file
+    else:
+        print("\n  ℹ️  認證方式（擇一設定）：")
+        print("     · Service account：在 config.yaml 填入 credentials_file 路徑")
+        print("     · API key（公開試算表）：export GOOGLE_API_KEY=AIza...")
+
+    # ── 試算表欄位提示 ─────────────────────────────
+    template_path = Path(__file__).parent / "issues" / "SHEETS_TEMPLATE.csv"
+    print("\n  📋 試算表欄位範本：")
+    if template_path.exists():
+        print(f"     {template_path}")
+        print("     Google Sheets → 檔案 → 匯入 → 上傳此 CSV 即可建立欄位")
+    else:
+        print("     必要欄位：issue_id, summary, module, description,")
+        print("               reproduction_steps, expected, actual")
+        print("     reproduction_steps 使用換行（\\n）分隔多個步驟")
+
+    return opts
 
 
 def command_init(args) -> int:

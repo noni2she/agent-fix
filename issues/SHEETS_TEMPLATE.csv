@@ -1,0 +1,4 @@
+issue_id,summary,module,description,reproduction_steps,expected,actual,priority,reporter,reported_date
+BUG-001,搜尋清除按鈕點擊無反應,搜尋功能 > 搜尋結果頁,在搜尋結果頁面點擊清除按鈕後搜尋條件沒有被清空,"步驟1: 開啟搜尋頁面 /search
+步驟2: 輸入關鍵字並搜尋
+步驟3: 點擊清除按鈕",搜尋框應清空並重設為初始狀態,點擊按鈕沒有任何反應,High,張三,2026-04-20

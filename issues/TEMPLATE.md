@@ -112,6 +112,34 @@
 }
 ```
 
+## Google Sheets 批次輸入
+
+如果使用 `issue_source.type: google_sheets`，請以 `issues/SHEETS_TEMPLATE.csv` 建立試算表：
+
+1. Google Sheets → 檔案 → 匯入 → 上傳 `SHEETS_TEMPLATE.csv`
+2. 依格式填入所有 issue
+3. 在 `config.yaml` 設定 `issue_source.options.sheet_url`
+4. 執行 `agent-fix batch` 批次處理
+
+**欄位對應**
+
+| 試算表欄位 | 說明 | 必填 |
+|---|---|---|
+| `issue_id` | Issue ID（如 BUG-001） | ✅ |
+| `summary` | 問題標題 | ✅ |
+| `module` | 問題所在模組 | ✅ |
+| `description` | 詳細描述 | ✅ |
+| `reproduction_steps` | 重現步驟，多步驟以換行（Enter）分隔 | ✅ |
+| `expected` | 預期結果 | ✅ |
+| `actual` | 實際結果 | ✅ |
+| `priority` | High / Medium / Low | ❌ |
+| `reporter` | 回報者 | ❌ |
+| `reported_date` | 回報日期 | ❌ |
+
+> `status` 欄位值為 `done`、`closed`、`fixed`、`resolved` 時會自動跳過。
+
+---
+
 ## 注意事項
 
 1. **Issue ID 格式**: 必須符合專案配置中的 `issue_prefix`
