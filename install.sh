@@ -105,12 +105,22 @@ if [ "$SDK_EXTRA" = "openai" ]; then
     echo "   建議寫入 .env 檔案"
 fi
 
-# ── 5. 全域安裝 ──────────────────────────────────
+# ── 5. Google Sheets 支援 ────────────────────────
+echo ""
+read -p "是否安裝 Google Sheets issue source 支援 (y/n)（預設 n）: " -n 1 -r SHEETS_REPLY; echo
+if [[ $SHEETS_REPLY =~ ^[Yy]$ ]]; then
+    INSTALL_EXTRAS="$SDK_EXTRA,sheets"
+    echo "✅ 將安裝 gspread（Google Sheets 支援）"
+else
+    INSTALL_EXTRAS="$SDK_EXTRA"
+fi
+
+# ── 6. 全域安裝 ──────────────────────────────────
 echo ""
 echo "📥 安裝 agent-fix（SDK: $SDK_NAME）..."
-uv tool install --editable ".[$SDK_EXTRA]"
+uv tool install --editable ".[$INSTALL_EXTRAS]"
 
-# ── 6. 驗證安裝 ──────────────────────────────────
+# ── 7. 驗證安裝 ──────────────────────────────────
 echo ""
 if command -v agent-fix &> /dev/null; then
     echo "✅ 安裝完成！已可使用："
@@ -128,10 +138,10 @@ echo "初始化專案配置："
 echo "  agent-fix init /path/to/project --output ./projects/myproject.yaml"
 echo ""
 echo "執行 Bug 修復："
-echo "  export PROJECT_CONFIG=./projects/myproject.yaml"
-echo "  agent-fix run BUG-001"
+echo "  agent-fix run BUG-001 --config ./projects/myproject.yaml"
+echo "  agent-fix batch       --config ./projects/myproject.yaml"
 echo ""
-echo "批次執行（Google Sheets 來源需額外安裝）："
-echo "  uv tool install --editable '.[copilot,sheets]'"
-echo "  agent-fix batch --config ./projects/myproject.yaml"
+echo "多專案並行（每個專案帶 --config 即可）："
+echo "  agent-fix run PROJ-A-001 --config ./projects/proj-a.yaml"
+echo "  agent-fix run PROJ-B-001 --config ./projects/proj-b.yaml"
 echo "═══════════════════════════════════════════"
