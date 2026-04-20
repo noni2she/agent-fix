@@ -43,6 +43,7 @@
 - [x] `LocalJsonAdapter.list_all()` — 掃描 `issues/sources/*.json`
 - [x] `GoogleSheetsAdapter` — 純記憶體快取，讀取 Sheet → 直接交 batch runner
 - [x] `gspread` 為 optional `sheets` extra
+- [x] `JiraAdapter.list_all()` — JQL query（jql_base + --filter AND 串接，支援分頁）
 
 ## 階段 6：並行執行 — Git Worktree（v3.3，規劃中）
 

@@ -94,7 +94,7 @@ class IssueSourceConfig(BaseModel):
         default="local_json",
         description=(
             "Issue 來源類型。\n"
-            "內建：local_json（預設）、google_sheets\n"
+            "內建：local_json（預設）、jira、google_sheets\n"
             "自訂：繼承 IssueSourceAdapter 實作後，填入自訂識別名稱並在程式碼中建立實例"
         )
     )
@@ -104,6 +104,9 @@ class IssueSourceConfig(BaseModel):
             "Adapter 特定的選項設定。\n"
             "local_json 可用選項：\n"
             "  sources_dir: str  # issue JSON 目錄，預設 issues/sources\n"
+            "jira 可用選項：\n"
+            "  jql_base: str     # 固定 JQL 條件（project、assignee 等不常變動的篩選）\n"
+            "                    # 執行時可用 --filter 附加額外 JQL（AND 串接）\n"
             "google_sheets 可用選項：\n"
             "  sheet_url: str          # Google Sheets URL（必填）\n"
             "  credentials_file: str   # service account JSON 路徑\n"
