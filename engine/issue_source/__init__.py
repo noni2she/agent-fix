@@ -50,13 +50,11 @@ def create_adapter(config) -> IssueSourceAdapter:
 
     if config.type == "google_sheets":
         opts = config.options or {}
-        sheet_url = opts.get("sheet_url", "")
         return GoogleSheetsAdapter(
-            sheet_url=sheet_url,
+            sheet_url=opts.get("sheet_url", ""),
             credentials_file=opts.get("credentials_file"),
             api_key=opts.get("api_key"),
             worksheet=opts.get("worksheet"),
-            sources_dir=opts.get("sources_dir", "issues/sources"),
         )
 
     raise ValueError(

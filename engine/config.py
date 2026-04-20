@@ -108,8 +108,7 @@ class IssueSourceConfig(BaseModel):
             "  sheet_url: str          # Google Sheets URL（必填）\n"
             "  credentials_file: str   # service account JSON 路徑\n"
             "  api_key: str            # Google API key（公開試算表）\n"
-            "  worksheet: str          # 工作表名稱（預設第一個）\n"
-            "  sources_dir: str        # 本地 JSON 輸出目錄，預設 issues/sources"
+            "  worksheet: str          # 工作表名稱（預設第一個）"
         )
     )
 

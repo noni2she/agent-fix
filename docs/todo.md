@@ -35,7 +35,23 @@
 - [x] 修正 `Dict[str, any]` → `Dict[str, Any]`（Pydantic bug）
 - [x] `pip install` 後 `agent-fix run BUG-001` 全域可用
 
-## 階段 4：Retro 機制 — Skill 持續進化（規劃中）
+## 階段 4：批次執行（✅ 完成）
+
+- [x] `agent-fix batch` CLI 指令（--dry-run、--filter）
+- [x] `run_batch_workflow()` — 依序執行，單一失敗不中斷
+- [x] `IssueSourceAdapter.list_all()` 抽象方法
+- [x] `LocalJsonAdapter.list_all()` — 掃描 `issues/sources/*.json`
+- [x] `GoogleSheetsAdapter` — 純記憶體快取，讀取 Sheet → 直接交 batch runner
+- [x] `gspread` 為 optional `sheets` extra
+
+## 階段 6：並行執行 — Git Worktree（v3.3，規劃中）
+
+- [ ] 每個 issue 建立獨立 git worktree（temp branch）
+- [ ] `asyncio.gather` 並行執行 `_execute_workflow()`（可設 max_workers）
+- [ ] PASS 後 merge worktree；FAIL 後 discard
+- [ ] Config：`batch.parallel: true`、`batch.max_workers: 3`
+
+## 階段 7：Retro 機制 — Skill 持續進化（規劃中）
 
 > **目標**：每次修復工作流結束後，可透過 retro 階段提煉經驗，持續改善 skills 與專案配置。
 
@@ -74,7 +90,7 @@ retro 發現改善點
 - 避免 over-fit：跨 issue 分析比單次 retro 更重要
 - 避免 skill 碎片化：設 threshold（同類問題 3+ 次才改 skill）
 
-## 階段 5：整合 behavior-validation Skill（待實作）
+## 階段 8：整合 behavior-validation Skill（待實作）
 
 > **背景**：`.github/skills/behavior-validation/` 提供 Playwright-based 瀏覽器驗證能力，應取代 `bugfix-test` Phase 4 目前使用的 `agent-browser` CLI 佔位符。
 
@@ -99,7 +115,7 @@ retro 發現改善點
 
 ---
 
-## 階段 6：獨立 Plugin（可選，待架構穩定後進行）
+## 階段 9：獨立 Plugin（可選，待架構穩定後進行）
 
 - [ ] 將通用 skills 包裝為 `.claude-plugin/` 格式
 - [ ] 建立 `plugin.json`、`marketplace.json`
