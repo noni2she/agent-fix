@@ -25,11 +25,15 @@ copilot = ["github-copilot-sdk>=0.1.20"]
 claude  = ["anthropic>=0.40.0"]
 openai  = ["openai-agents>=0.0.3"]
 
+# Issue source 擴充
+sheets = ["gspread>=6.0.0"]
+
 # 安裝全部（開發/測試用）
 all = [
     "github-copilot-sdk>=0.1.20",
     "anthropic>=0.40.0",
     "openai-agents>=0.0.3",
+    "gspread>=6.0.0",
 ]
 
 dev = [

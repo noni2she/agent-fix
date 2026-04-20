@@ -53,6 +53,22 @@ class IssueSourceAdapter(ABC):
         """
         pass
 
+    def list_all(self) -> list[str]:
+        """
+        列出所有可處理的 issue ID，供批次執行使用。
+
+        Returns:
+            issue ID 列表（如 ["BUG-001", "BUG-002"]）
+
+        Raises:
+            IssueSourceError: 來源存取失敗
+            NotImplementedError: 子類別未實作此方法
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support list_all(). "
+            "Implement this method to enable batch execution."
+        )
+
     def validate(self) -> None:
         """
         驗證 adapter 配置是否正確（環境變數、連線資訊等）

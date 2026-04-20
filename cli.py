@@ -88,7 +88,29 @@ def create_parser() -> argparse.ArgumentParser:
         "-c",
         help="配置檔案路徑 (預設: 從 PROJECT_CONFIG 環境變數讀取)"
     )
-    
+
+    # batch 命令
+    batch_parser = subparsers.add_parser(
+        "batch",
+        help="批次執行所有 Issue（從 issue_source 讀取清單）"
+    )
+    batch_parser.add_argument(
+        "--config",
+        "-c",
+        help="配置檔案路徑 (預設: 從 PROJECT_CONFIG 環境變數讀取)"
+    )
+    batch_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="列出將執行的 Issue ID，但不實際執行"
+    )
+    batch_parser.add_argument(
+        "--filter",
+        "-f",
+        metavar="PATTERN",
+        help="以 glob pattern 篩選 Issue ID (例如: BUG-*)"
+    )
+
     return parser
 
 
@@ -324,6 +346,64 @@ def command_check_deps(args) -> int:
     return 0
 
 
+def command_batch(args) -> int:
+    """批次執行所有 Issue"""
+    import os
+    import asyncio
+    import fnmatch
+
+    if args.config:
+        os.environ['PROJECT_CONFIG'] = args.config
+
+    if 'PROJECT_CONFIG' not in os.environ:
+        print("❌ 錯誤：未設定 PROJECT_CONFIG 環境變數")
+        print("\n請設定配置檔案路徑：")
+        print("  export PROJECT_CONFIG=./config.yaml")
+        print("或使用 --config 選項：")
+        print("  agent-fix batch --config ./config.yaml")
+        return 1
+
+    try:
+        from engine.config import ProjectConfig
+        from engine.issue_source import create_adapter
+
+        config = ProjectConfig.from_yaml(os.environ['PROJECT_CONFIG'])
+        adapter = create_adapter(config.issue_source)
+        adapter.validate()
+
+        issue_ids = adapter.list_all()
+
+        if not issue_ids:
+            print("⚠️  沒有找到任何 Issue")
+            return 0
+
+        # 套用 --filter
+        if args.filter:
+            issue_ids = [i for i in issue_ids if fnmatch.fnmatch(i, args.filter)]
+            if not issue_ids:
+                print(f"⚠️  沒有符合 '{args.filter}' 的 Issue")
+                return 0
+
+        print(f"\n📋 共 {len(issue_ids)} 個 Issue：")
+        for i, issue_id in enumerate(issue_ids, 1):
+            print(f"  {i:3}. {issue_id}")
+
+        if args.dry_run:
+            print("\n(dry-run 模式，不實際執行)")
+            return 0
+
+        print()
+        from engine.workflow import run_batch_workflow
+        asyncio.run(run_batch_workflow(issue_ids))
+        return 0
+
+    except Exception as e:
+        print(f"❌ 批次執行失敗: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
 def command_run(args) -> int:
     """執行 Bug 修復流程"""
     import os
@@ -375,6 +455,8 @@ def main():
         return command_check_deps(args)
     elif args.command == "run":
         return command_run(args)
+    elif args.command == "batch":
+        return command_batch(args)
     else:
         print(f"❌ 未知命令: {args.command}")
         parser.print_help()

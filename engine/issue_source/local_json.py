@@ -60,3 +60,16 @@ class LocalJsonAdapter(IssueSourceAdapter):
             data['issue_id'] = issue_id
 
         return data
+
+    def list_all(self) -> list[str]:
+        """
+        掃描 sources_dir，回傳所有 issue ID（*.json 檔名去掉副檔名）。
+
+        Returns:
+            issue ID 列表（依檔名排序）
+        """
+        if not self.sources_dir.exists():
+            return []
+        return sorted(
+            p.stem for p in self.sources_dir.glob("*.json")
+        )

@@ -477,6 +477,65 @@ Follow the exploration steps in the skill above. Write the generated config.yaml
         restore()
 
 
+async def run_batch_workflow(issue_ids: list[str]):
+    """
+    批次執行：依序處理每個 issue，逐一執行完整 bug fix 流程。
+    任一 issue 失敗不中斷後續執行，最後彙總結果。
+    """
+    try:
+        config, spec, project_root = init_workflow()
+    except ConfigurationError as e:
+        print(f"\n❌ Configuration Error: {e}\n")
+        sys.exit(1)
+
+    total = len(issue_ids)
+    passed: list[str] = []
+    failed: list[str] = []
+
+    print(f"""
+╭──────────────────────────────────────────────────────────╮
+│      Agent Fix v3.1 — Batch Mode                         │
+│      Project: {config.project_name:<38}│
+│      Issues:  {total:<38}│
+╰──────────────────────────────────────────────────────────╯
+""")
+
+    loop = asyncio.get_event_loop()
+    restore = setup_sdk_error_silencing(loop)
+
+    try:
+        for idx, issue_id in enumerate(issue_ids, 1):
+            print(f"\n{'═'*60}")
+            print(f"  [{idx}/{total}] {issue_id}")
+            print(f"{'═'*60}")
+            try:
+                await _execute_workflow(issue_id, config, project_root)
+                passed.append(issue_id)
+            except Exception as e:
+                print(f"\n  ❌ {issue_id} failed: {e}")
+                import traceback
+                traceback.print_exc()
+                failed.append(issue_id)
+    finally:
+        restore()
+
+    print(f"""
+╭──────────────────────────────────────────────────────────╮
+│      Batch Complete                                       │
+│      ✅ Passed: {len(passed):<41}│
+│      ❌ Failed: {len(failed):<41}│
+╰──────────────────────────────────────────────────────────╯""")
+
+    if passed:
+        print("\n  Passed:")
+        for i in passed:
+            print(f"    ✅ {i}")
+    if failed:
+        print("\n  Failed:")
+        for i in failed:
+            print(f"    ❌ {i}")
+
+
 async def run_workflow(issue_id: str):
     """
     CLI entry point：初始化 workflow 後執行完整修復流程。
