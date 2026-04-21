@@ -85,19 +85,48 @@ Orchestrator（純路由，不做分析判斷）
 
 ### 批次執行相容性
 
-Orchestrator-Worker 與批次執行完全相容：
+Orchestrator-Worker 與批次執行有兩個層次：
+
+**層次 A：Per-issue Orchestrator（基礎）**
 
 ```
-Batch Runner
-└── for each issue:
-      Issue Orchestrator
-      ├── Analyzer subagent
-      ├── Implementer subagent
-      └── Tester subagent
+Batch Runner（迴圈）
+└── Issue 1 → 自己的 Orchestrator → Analyzer → Implementer → Tester
+└── Issue 2 → 自己的 Orchestrator → Analyzer → Implementer → Tester
+└── Issue N → ...
 ```
 
-批次下每個 issue 都有自己的 Orchestrator，彼此完全隔離。
-配合 Stage 6 的 git worktree，還可以多個 Issue Orchestrator 並行執行。
+每個 issue 有自己的 Orchestrator，按固定順序依序執行，issue 間彼此隔離。
+簡單、易實作，但無跨 issue 協調能力。
+
+**層次 B：Super Orchestrator + Conflict-aware Scheduler（進階）**
+
+```
+t=0   所有 Analyzer 並行（只讀，零衝突風險）
+      [A1][A2][A3]...[A10]
+       ↓  各自完成時回報 impacted_files
+
+t=?   Scheduler 動態更新衝突圖，有空位立刻 spawn Implementer
+      ├── I2 start（無衝突，A2 完成即跑）
+      ├── I1 start（無衝突，A1 完成即跑）
+      ├── I3 wait （與 I1 碰同一個檔案，等 I1 + T1 完成後才跑）
+      └── ...
+
+t=?   Tester 隨對應 Implementer 完成後立刻 spawn
+      ├── T2 start（I2 完成）
+      ├── T1 start（I1 完成）
+      └── ...
+
+t=end 全部 N 個 issue 完成，無不必要等待
+```
+
+Scheduler 的核心邏輯：
+- 所有 Analyzer 並行（read-only，永遠安全）
+- Analyzer 完成後回報 `impacted_files`，Scheduler 更新衝突圖
+- 衝突圖決定哪些 Implementer 可並行、哪些需序列化
+- 唯一的等待是**有意義的**（真實的檔案衝突），不是浪費
+
+> 層次 A 是 Stage 5 的初始實作目標，層次 B 是 batch 場景下的進階演化方向。
 
 ### 設計決策（待確認）
 
