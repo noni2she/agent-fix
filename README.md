@@ -133,6 +133,7 @@ export SDK_ADAPTER=copilot  # GitHub Copilot（預設）
 agent-fix init     <project_path> [--output <path>] [--issue-prefix <prefix>]
 agent-fix validate <config-file>
 agent-fix run      <issue-id> [--config <path>]
+agent-fix batch    [--config <path>] [--dry-run] [--filter <pattern>]
 agent-fix check-deps [--fix]
 ```
 

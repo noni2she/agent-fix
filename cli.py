@@ -370,13 +370,22 @@ def command_validate(args) -> int:
 def command_check_deps(args) -> int:
     """檢查依賴套件"""
     import importlib.util
-    
+    import os
+
     print("🔍 檢查依賴套件...\n")
-    
+
+    sdk = os.getenv("SDK_ADAPTER", "copilot")
+    _sdk_pkg_map = {
+        "copilot": ("copilot",    "GitHub Copilot SDK"),
+        "claude":  ("anthropic",  "Anthropic Claude SDK"),
+        "openai":  ("agents",     "OpenAI Agents SDK"),
+    }
+    sdk_pkg, sdk_label = _sdk_pkg_map.get(sdk, _sdk_pkg_map["copilot"])
+
     required_packages = {
-        'pydantic': 'Pydantic (配置驗證)',
-        'yaml': 'PyYAML (YAML 解析)',
-        'copilot': 'GitHub Copilot SDK (Agent 執行)',
+        'pydantic':  'Pydantic (配置驗證)',
+        'yaml':      'PyYAML (YAML 解析)',
+        sdk_pkg:     f'{sdk_label} (Agent 執行，SDK_ADAPTER={sdk})',
         'playwright': 'Playwright (瀏覽器測試)',
     }
     
@@ -402,12 +411,8 @@ def command_check_deps(args) -> int:
             print("\n🔧 自動安裝缺少的依賴...")
             import subprocess
             
-            packages_to_install = [pkg for pkg, _ in missing]
-            # 特殊處理 yaml -> PyYAML
-            packages_to_install = [
-                'PyYAML' if pkg == 'yaml' else pkg 
-                for pkg in packages_to_install
-            ]
+            _install_name = {"yaml": "PyYAML", "copilot": "github-copilot-sdk", "agents": "openai-agents"}
+            packages_to_install = [_install_name.get(pkg, pkg) for pkg, _ in missing]
             
             try:
                 subprocess.check_call([
