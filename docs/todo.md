@@ -1,6 +1,6 @@
 # Agent Fix — 發展路線
 
-> 最後更新：2026-04-11
+> 最後更新：2026-04-17
 
 ## 專案定位
 
@@ -44,6 +44,68 @@
 - [x] `GoogleSheetsAdapter` — 純記憶體快取，讀取 Sheet → 直接交 batch runner
 - [x] `gspread` 為 optional `sheets` extra
 - [x] `JiraAdapter.list_all()` — JQL query（jql_base + --filter AND 串接，支援分頁）
+
+## 階段 5：Orchestrator-Worker 架構（🔴 最高優先，下一個大方向）
+
+> **背景**：目前 1 agent + 3 skills 的一條龍流程存在「認知污染」問題——
+> analyze 建立的假設會滲透到 implement，implement 的框架又影響 test 的客觀性。
+> 即使 test 開了新 session，它仍讀了 analyze.md / implement.md，等同繼承了前兩階段的偏見。
+>
+> **解法**：引入 Orchestrator 作為純路由層，每個 phase 由獨立 subagent 執行，
+> Orchestrator 控制每個 subagent 能看到的資訊，確保各 phase 的認知獨立性。
+
+### 架構設計
+
+```
+Orchestrator（純路由，不做分析判斷）
+├── spawn → Analyzer subagent    輸入：issue 描述（僅此）
+│                                輸出：analyze.md
+├── spawn → Implementer subagent 輸入：analyze.md（僅此）
+│                                輸出：implement.md + code diff
+└── spawn → Tester subagent      輸入：issue 原文 + code diff（不含 analyze / implement）
+                                 輸出：test.md (PASS / FAIL)
+```
+
+### 各角色資訊隔離規則
+
+| Subagent | 能看到 | 不能看到 |
+|----------|--------|---------|
+| Analyzer | issue 原文 | 任何修復相關資訊 |
+| Implementer | analyze.md 結論 | Analyzer 的推理過程 |
+| Tester | issue 原文 + diff | analyze.md / implement.md |
+
+### 需要做的事
+
+- [ ] 新增 `engine/orchestrator.py`：Orchestrator 主控邏輯，負責 spawn subagent + 路由
+- [ ] 各 phase 改為獨立 subagent session（`create_session` 各自呼叫）
+- [ ] Orchestrator 控制每個 subagent 的輸入內容（資訊隔離）
+- [ ] retry 邏輯移至 Orchestrator 層（Tester FAIL → Orchestrator 決定是否 re-spawn Implementer）
+- [ ] 現有 `workflow.py` 重構或保留為向後相容的 legacy mode
+- [ ] CLI 新增 `--mode orchestrator`（預設）vs `--mode legacy`（目前一條龍）
+
+### 批次執行相容性
+
+Orchestrator-Worker 與批次執行完全相容：
+
+```
+Batch Runner
+└── for each issue:
+      Issue Orchestrator
+      ├── Analyzer subagent
+      ├── Implementer subagent
+      └── Tester subagent
+```
+
+批次下每個 issue 都有自己的 Orchestrator，彼此完全隔離。
+配合 Stage 6 的 git worktree，還可以多個 Issue Orchestrator 並行執行。
+
+### 設計決策（待確認）
+
+- subagent 的 spawn 機制：複用現有 `create_session()` 還是新抽象層？
+- Orchestrator 是否需要有自己的 LLM session，或純 Python 邏輯？
+- retry 上限：Orchestrator 層統一管理 vs 各 subagent 自己 retry？
+
+---
 
 ## 階段 6：並行執行 — Git Worktree（v3.3，規劃中）
 
