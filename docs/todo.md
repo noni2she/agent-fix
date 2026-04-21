@@ -93,8 +93,9 @@ Orchestrator（純路由，不做分析判斷）
 **Batch + Scheduler**
 - [ ] 新增 `engine/scheduler.py`：Conflict-aware Scheduler，管理衝突圖與排程
 - [ ] Analyzer 完成後回報 `impacted_files`，Scheduler 動態更新衝突圖
-- [ ] 衝突組的後續 issue 以前者 bugfix branch 為 base（確保 merge 無衝突）
-- [ ] Batch 結束後產出結構化總結報告（獨立組 / 衝突組 / 失敗）
+- [ ] 所有 issue 一律從 main 建立 branch（含衝突組）
+- [ ] 衝突組的後序 Implementer 收到前序修改摘要作為上下文（語義對齊，非 branch 繼承）
+- [ ] Batch 結束後產出結構化總結報告（獨立組 / 衝突組含建議 merge 順序 / 失敗）
 
 ### 批次執行相容性
 
@@ -139,29 +140,30 @@ Scheduler 的核心邏輯：
 - 衝突圖決定哪些 Implementer 可並行、哪些需序列化
 - 唯一的等待是**有意義的**（真實的檔案衝突），不是浪費
 
-**衝突組的 branching 策略（保證 merge 無衝突的關鍵）**
+**衝突組的 branching 策略（設計決策：all-from-main）**
 
-衝突組內的 issue 序列化執行，且後者的 base branch 必須是前者的結果：
+所有 issue 的 Implementer **一律從 main 建立 branch**，包括衝突組：
 
 ```
 main
- └── bugfix/issue-1  (Button.tsx: fix A)
-      └── bugfix/issue-3  (Button.tsx: fix B，在 fix A 的基礎上繼續修)
+ ├── bugfix/issue-1  (Button.tsx: fix A)
+ └── bugfix/issue-3  (Button.tsx: fix B，同樣從 main 開出)
 
-merge 順序：
+merge 順序（依 Orchestrator 建議）：
   bugfix/issue-1 → main  ✅ 乾淨
-  bugfix/issue-3 → main  ✅ 乾淨（issue-3 本來就包含 issue-1 的內容）
+  bugfix/issue-3 → main  ⚠️  可能有衝突，人類需手動解
 ```
 
-Orchestrator 在 spawn issue-3 的 Implementer 時，傳入的 base branch 是
-`bugfix/issue-1`（而非 main），並告知「issue-1 已對此檔案做了以下修改」。
-Implementer 自然會在 issue-1 修改的基礎上調整修復策略，確保最終 merge 乾淨。
+衝突組內的後序 Implementer 仍會收到「issue-1 已修改此檔案的以下內容」的上下文，
+讓修復策略在語義上保持一致，**但 branch 本身不繼承 issue-1 的 commit**。
 
-非衝突組（並行執行）的 issue 一律從 main 開出 branch，merge 時因為碰不同檔案，
-同樣保證無衝突。
+**選擇此策略的原因**：
+- MR diff 乾淨（只含自己的修改），code review 友善
+- 不產生「linked branch」的複雜依賴關係
+- 代價是：衝突組在 merge 時可能需要人類解衝突
 
-**最終結果**：所有 PASS 的 branch push 到 GitLab 後，merge 順序對應衝突組的依賴鏈，
-整體無需人工解衝突。
+**總結報告的責任**：Orchestrator 在報告中明確標出衝突組的建議 merge 順序，
+讓人類按順序操作，衝突也只需處理一次（merge 靠後的那個）。
 
 > 層次 A 是 Stage 5 的初始實作目標，層次 B 是 batch 場景下的進階演化方向。
 
@@ -209,7 +211,8 @@ Tester PASS
 - subagent 的 spawn 機制：複用現有 `create_session()` 還是新抽象層？
 - Orchestrator 是否需要有自己的 LLM session，或純 Python 邏輯？
 - retry 上限：Orchestrator 層統一管理 vs 各 subagent 自己 retry？
-- GitHub 無原生 PR dependency，衝突組 merge 順序只能靠總結報告提示人類，或導入 Graphite 等第三方工具
+- Branching 策略採 all-from-main：MR diff 乾淨，代價是衝突組 merge 時需人類手動解衝突
+- GitHub / GitLab 無原生 PR dependency，衝突組的正確 merge 順序由總結報告提示人類；如需強制依賴可評估 Graphite 等第三方工具
 
 ---
 
