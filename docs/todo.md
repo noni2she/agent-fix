@@ -85,9 +85,12 @@ Orchestrator（純路由，不做分析判斷）
 - [ ] CLI 新增 `--mode orchestrator`（預設）vs `--mode legacy`（目前一條龍）
 
 **MR 自動化**
-- [ ] Tester PASS 後自動建立 MR（`gh pr create` / `glab mr create`）
-- [ ] 新增 `engine/reviewer.py`：AI Reviewer subagent（輸入：issue 原文 + diff，資訊隔離）
-- [ ] Reviewer APPROVE → 通知使用者可以 merge；REQUEST CHANGES → 回饋 retry
+- [ ] `config.yaml` 新增 `git_platform: github | gitlab`，Orchestrator 依此切換 CLI 命令
+- [ ] Tester PASS 後自動建立 MR/PR，取得平台回傳的 MR/PR ID
+- [ ] 從平台撈回 MR diff（`gh pr diff` / `glab mr diff`）作為 Reviewer 輸入
+- [ ] 新增 `engine/reviewer.py`：AI Reviewer subagent（輸入：issue 原文 + 平台 MR diff，資訊隔離）
+- [ ] Reviewer 評論寫回平台 MR（`gh pr review` / `glab mr note` + `glab mr approve`）
+- [ ] Reviewer APPROVE → MR 留有初審紀錄，等待人類 merge；REQUEST CHANGES → 回饋 retry
 - [ ] Orchestrator 總結報告明確列出衝突組的 merge 順序
 
 **Batch + Scheduler**
@@ -174,14 +177,25 @@ Tester PASS 後，Orchestrator 繼續執行以下自動化步驟：
 ```
 Tester PASS
 ├── push branch（已有）
-├── 建立 MR（gh pr create / glab mr create）
+├── 建立 MR / PR
+│   ├── GitHub → gh pr create
+│   └── GitLab → glab mr create
+├── 取得 MR/PR ID → 從平台撈 diff
+│   ├── GitHub → gh pr diff <id>
+│   └── GitLab → glab mr diff <id>
 ├── spawn AI Reviewer subagent
-│   ├── 輸入：原始 issue + MR diff（不含 analyze.md / implement.md）
-│   │         ↑ 資訊隔離，確保 Reviewer 視角獨立，不繼承實作偏見
-│   ├── APPROVE → 回報 Orchestrator，等待人類 merge
-│   └── REQUEST CHANGES → 回饋給 Implementer → retry → 重跑
-└── 人類做最終 merge 決策
+│   ├── 輸入：原始 issue + 從平台撈回的 MR diff
+│   │         ↑ 不含 analyze.md / implement.md，確保 Reviewer 視角獨立
+│   ├── Review 評論寫回平台 MR（人類進 MR 即可看到）
+│   │   ├── GitHub → gh pr review <id> --comment / --approve / --request-changes
+│   │   └── GitLab → glab mr note <id> / glab mr approve <id>
+│   ├── APPROVE → MR 標記 approved，等待人類 merge
+│   └── REQUEST CHANGES → 評論留在 MR 上 → 回饋 Implementer → retry → 重跑
+└── 人類進 GitLab / GitHub，看到帶有完整 AI review 紀錄的 MR，做最終 merge 決策
 ```
+
+**平台相容性**：agent-fix（GitHub）與 agent-bugfix（GitLab）使用不同 CLI 工具，
+Orchestrator 根據 `config.yaml` 的 `git_platform: github | gitlab` 切換命令。
 
 **人類審查閘門原則**：AI 負責建 MR 和初審（效率），人類保留最終 merge 決定權（品質把關）。
 
