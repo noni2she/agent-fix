@@ -126,6 +126,30 @@ Scheduler 的核心邏輯：
 - 衝突圖決定哪些 Implementer 可並行、哪些需序列化
 - 唯一的等待是**有意義的**（真實的檔案衝突），不是浪費
 
+**衝突組的 branching 策略（保證 merge 無衝突的關鍵）**
+
+衝突組內的 issue 序列化執行，且後者的 base branch 必須是前者的結果：
+
+```
+main
+ └── bugfix/issue-1  (Button.tsx: fix A)
+      └── bugfix/issue-3  (Button.tsx: fix B，在 fix A 的基礎上繼續修)
+
+merge 順序：
+  bugfix/issue-1 → main  ✅ 乾淨
+  bugfix/issue-3 → main  ✅ 乾淨（issue-3 本來就包含 issue-1 的內容）
+```
+
+Orchestrator 在 spawn issue-3 的 Implementer 時，傳入的 base branch 是
+`bugfix/issue-1`（而非 main），並告知「issue-1 已對此檔案做了以下修改」。
+Implementer 自然會在 issue-1 修改的基礎上調整修復策略，確保最終 merge 乾淨。
+
+非衝突組（並行執行）的 issue 一律從 main 開出 branch，merge 時因為碰不同檔案，
+同樣保證無衝突。
+
+**最終結果**：所有 PASS 的 branch push 到 GitLab 後，merge 順序對應衝突組的依賴鏈，
+整體無需人工解衝突。
+
 > 層次 A 是 Stage 5 的初始實作目標，層次 B 是 batch 場景下的進階演化方向。
 
 ### 設計決策（待確認）
@@ -133,6 +157,7 @@ Scheduler 的核心邏輯：
 - subagent 的 spawn 機制：複用現有 `create_session()` 還是新抽象層？
 - Orchestrator 是否需要有自己的 LLM session，或純 Python 邏輯？
 - retry 上限：Orchestrator 層統一管理 vs 各 subagent 自己 retry？
+- 人工審查閘門位置：Tester PASS 後立刻 push，或全部跑完後統一呈現總結再由使用者決定？
 
 ---
 
