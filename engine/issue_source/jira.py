@@ -211,15 +211,40 @@ class JiraAdapter(IssueSourceAdapter):
         print(f"   ✅ {len(issue_keys)} issues found")
         return issue_keys
 
+    @staticmethod
+    def _strip_fields(obj):
+        """遞迴移除 null 值，以及無意義的 customfield（全 null 或純噪音）。"""
+        _NOISE_FIELDS = {
+            "expand", "self",
+            "customfield_10000",   # dev summary（超長 Java toString 字串）
+            "customfield_10818",   # HTML button（複製按鈕）
+            "customfield_10819",   # HTML button（複製時間）
+        }
+        if isinstance(obj, dict):
+            result = {}
+            for k, v in obj.items():
+                if v is None:
+                    continue
+                if k in _NOISE_FIELDS:
+                    continue
+                stripped = JiraAdapter._strip_fields(v)
+                if stripped == {} or stripped == []:
+                    continue
+                result[k] = stripped
+            return result
+        if isinstance(obj, list):
+            return [JiraAdapter._strip_fields(i) for i in obj if i is not None]
+        return obj
+
     def fetch(self, issue_id: str) -> dict:
         """
-        從 Jira REST API 取得 issue raw JSON
+        從 Jira REST API 取得 issue raw JSON，自動過濾 null 欄位與噪音。
 
         Args:
             issue_id: Jira Issue key（如 PROJ-1234）
 
         Returns:
-            Jira API 原始回應（dict），保留完整欄位供 AI agent 解讀
+            Jira API 回應（dict），null 欄位已移除，保留有效欄位供 AI agent 解讀
 
         Raises:
             IssueNotFoundError: Issue 不存在（HTTP 404）
@@ -227,6 +252,7 @@ class JiraAdapter(IssueSourceAdapter):
         """
         try:
             data = self._get(f"/rest/api/2/issue/{issue_id}")
+            data = self._strip_fields(data)
             data["issue_id"] = issue_id
             return data
         except IssueSourceError as e:

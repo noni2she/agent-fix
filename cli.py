@@ -110,6 +110,20 @@ def create_parser() -> argparse.ArgumentParser:
         metavar="PATTERN",
         help="以 glob pattern 篩選 Issue ID (例如: BUG-*)"
     )
+    batch_parser.add_argument(
+        "--limit",
+        "-n",
+        type=int,
+        metavar="N",
+        help="只執行前 N 個 Issue（測試用）"
+    )
+    batch_parser.add_argument(
+        "--inspect",
+        metavar="ISSUE_ID",
+        nargs="?",
+        const="__first__",
+        help="印出 issue 的完整 raw JSON（供欄位比對用）。不指定 ID 則取第一筆"
+    )
 
     return parser
 
@@ -474,9 +488,20 @@ def command_batch(args) -> int:
                 print(f"⚠️  沒有符合 '{args.filter}' 的 Issue")
                 return 0
 
+        if args.limit and args.limit > 0:
+            issue_ids = issue_ids[:args.limit]
+
         print(f"\n📋 共 {len(issue_ids)} 個 Issue：")
         for i, issue_id in enumerate(issue_ids, 1):
             print(f"  {i:3}. {issue_id}")
+
+        if args.inspect:
+            target = args.inspect if args.inspect != "__first__" else issue_ids[0]
+            print(f"\n🔎 Fetching raw response for {target} ...")
+            raw = adapter.fetch(target)
+            import json as _json
+            print(_json.dumps(raw, ensure_ascii=False, indent=2))
+            return 0
 
         if args.dry_run:
             print("\n(dry-run 模式，不實際執行)")
