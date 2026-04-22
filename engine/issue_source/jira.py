@@ -1,15 +1,28 @@
 """
 Jira Issue Source Adapter
-從 Jira REST API v3 取得 issue 資料
+支援 Jira Cloud（Basic Auth）與 Jira Server 自建版（Session Auth）
 
 所需環境變數：
-    JIRA_BASE_URL    — Jira base URL（如 https://your-company.atlassian.net）
-    JIRA_USER_EMAIL  — Jira 帳號 email
-    JIRA_API_TOKEN   — Jira API Token
-                       （至 https://id.atlassian.com/manage-profile/security/api-tokens 建立）
+    JIRA_BASE_URL      — Jira base URL
+                         Cloud: https://your-company.atlassian.net
+                         Server: https://jira.your-company.com
+    JIRA_USER_EMAIL    — Jira 帳號
+                         Cloud: email（如 user@company.com）
+                         Server: username（如 bryce_ni）
+    JIRA_API_TOKEN     — 認證憑證
+                         Cloud: API Token（至 https://id.atlassian.com/manage-profile/security/api-tokens 建立）
+                         Server: LDAP/AD 登入密碼（Jira Server 不支援 API Token）
+
+選用環境變數：
+    JIRA_AUTH_MODE     — 認證模式（預設: basic）
+                         basic   → Basic Auth，適用 Jira Cloud
+                         session → Session Auth，適用 Jira Server（LDAP/AD）
+    JIRA_SSL_VERIFY    — SSL 憑證驗證（預設: true）
+                         false → 停用驗證，適用自簽憑證的內部 Jira Server
 """
 import json
 import os
+import ssl
 from base64 import b64encode
 from typing import Optional
 from urllib.error import HTTPError, URLError
@@ -25,7 +38,7 @@ from .base import (
 
 class JiraAdapter(IssueSourceAdapter):
     """
-    Jira REST API v3 Adapter
+    Jira Adapter — 同時支援 Jira Cloud 與 Jira Server 自建版。
 
     回傳 Jira raw JSON，不做格式轉換，由 AI agent 直接解讀。
     關鍵欄位：
@@ -43,22 +56,17 @@ class JiraAdapter(IssueSourceAdapter):
         user_email: Optional[str] = None,
         api_token: Optional[str] = None,
         jql_base: Optional[str] = None,
+        auth_mode: Optional[str] = None,
     ):
-        """
-        Args:
-            base_url:    Jira base URL，若未傳入則從 JIRA_BASE_URL 環境變數讀取
-            user_email:  Jira 帳號 email，若未傳入則從 JIRA_USER_EMAIL 讀取
-            api_token:   Jira API Token，若未傳入則從 JIRA_API_TOKEN 讀取
-        """
         self.base_url = (base_url or os.getenv("JIRA_BASE_URL", "")).rstrip("/")
         self.user_email = user_email or os.getenv("JIRA_USER_EMAIL", "")
         self.api_token = api_token or os.getenv("JIRA_API_TOKEN", "")
         self.jql_base = jql_base or ""
+        self.auth_mode = (auth_mode or os.getenv("JIRA_AUTH_MODE", "basic")).lower()
+        self._session_cookie: str | None = None
 
     def validate(self) -> None:
         """
-        驗證必要的環境變數是否齊全
-
         Raises:
             IssueSourceConfigError: 缺少必要環境變數
         """
@@ -78,23 +86,70 @@ class JiraAdapter(IssueSourceAdapter):
                 f"See .env.example for reference."
             )
 
-    def _auth_header(self) -> str:
-        return "Basic " + b64encode(
-            f"{self.user_email}:{self.api_token}".encode()
-        ).decode()
+        if self.auth_mode not in ("basic", "session"):
+            raise IssueSourceConfigError(
+                f"Invalid JIRA_AUTH_MODE='{self.auth_mode}'. Must be 'basic' or 'session'."
+            )
+
+    def _ssl_context(self):
+        if os.getenv("JIRA_SSL_VERIFY", "true").lower() == "false":
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            return ctx
+        return None
+
+    def _login(self) -> str:
+        """POST /rest/auth/1/session 換取 JSESSIONID（Session Auth，適用 Jira Server）。"""
+        import json as _json
+        url = f"{self.base_url}/rest/auth/1/session"
+        body = _json.dumps({"username": self.user_email, "password": self.api_token}).encode()
+        request = Request(url, data=body, headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-Atlassian-Token": "no-check",
+        })
+        try:
+            with urlopen(request, timeout=30, context=self._ssl_context()) as resp:
+                data = _json.loads(resp.read().decode("utf-8"))
+                session = data.get("session", {})
+                return f"{session['name']}={session['value']}"
+        except HTTPError as e:
+            body_text = ""
+            try:
+                body_text = e.read().decode("utf-8")
+            except Exception:
+                pass
+            raise IssueSourceConfigError(
+                f"Jira session login failed (HTTP {e.code}). "
+                f"Check JIRA_USER_EMAIL and JIRA_API_TOKEN.\n{body_text}"
+            )
 
     def _get(self, path: str, params: dict | None = None) -> dict:
-        """共用 GET helper，回傳解析後的 JSON dict。"""
+        """共用 GET helper，根據 JIRA_AUTH_MODE 選擇 Basic Auth 或 Session Auth。"""
         from urllib.parse import urlencode
         url = f"{self.base_url}{path}"
         if params:
             url += "?" + urlencode(params)
-        request = Request(url, headers={
-            "Authorization": self._auth_header(),
-            "Accept": "application/json",
-        })
+
+        if self.auth_mode == "session":
+            if self._session_cookie is None:
+                self._session_cookie = self._login()
+            headers = {
+                "Cookie": self._session_cookie,
+                "Accept": "application/json",
+            }
+        else:
+            headers = {
+                "Authorization": "Basic " + b64encode(
+                    f"{self.user_email}:{self.api_token}".encode()
+                ).decode(),
+                "Accept": "application/json",
+            }
+
+        request = Request(url, headers=headers)
         try:
-            with urlopen(request, timeout=30) as resp:
+            with urlopen(request, timeout=30, context=self._ssl_context()) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except HTTPError as e:
             body = ""
@@ -120,7 +175,7 @@ class JiraAdapter(IssueSourceAdapter):
             filter: 額外 JQL 條件，與 jql_base AND 串接
 
         Returns:
-            issue key 列表（如 ["MORSE-1", "MORSE-2"]）
+            issue key 列表（如 ["PROJ-1", "PROJ-2"]）
         """
         if not self.jql_base and not filter:
             raise IssueSourceError(
@@ -139,7 +194,7 @@ class JiraAdapter(IssueSourceAdapter):
         max_results = 100
 
         while True:
-            data = self._get("/rest/api/3/search", {
+            data = self._get("/rest/api/2/search", {
                 "jql": jql,
                 "fields": "key",
                 "startAt": start_at,
@@ -158,10 +213,10 @@ class JiraAdapter(IssueSourceAdapter):
 
     def fetch(self, issue_id: str) -> dict:
         """
-        從 Jira REST API v3 取得 issue raw JSON
+        從 Jira REST API 取得 issue raw JSON
 
         Args:
-            issue_id: Jira Issue key（如 MORSE-1234）
+            issue_id: Jira Issue key（如 PROJ-1234）
 
         Returns:
             Jira API 原始回應（dict），保留完整欄位供 AI agent 解讀
@@ -171,13 +226,13 @@ class JiraAdapter(IssueSourceAdapter):
             IssueSourceError:   API 呼叫失敗
         """
         try:
-            data = self._get(f"/rest/api/3/issue/{issue_id}")
+            data = self._get(f"/rest/api/2/issue/{issue_id}")
             data["issue_id"] = issue_id
             return data
         except IssueSourceError as e:
             if "HTTP 404" in str(e):
                 raise IssueNotFoundError(
                     f"Issue '{issue_id}' not found on Jira.\n"
-                    f"URL: {self.base_url}/rest/api/3/issue/{issue_id}"
+                    f"URL: {self.base_url}/rest/api/2/issue/{issue_id}"
                 )
             raise
