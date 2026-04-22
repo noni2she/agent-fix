@@ -127,9 +127,10 @@ issue_source:
 # ============================================
 skills:
   directories:
-    - "../your-project/.github/skills"
-    # 可加入多個 skills 目錄
-  coding_standards_skill: null  # 可選：填入對應的 skill 名稱（如 vercel-react-best-practices）
+    - "/path/to/agent-fix/skills"            # core workflow skills（必填，改為實際安裝路徑）
+    - "/path/to/agent-fix/skills/references" # vendor skills：vercel-react-best-practices, web-design-guidelines
+    # 可加入專案自有的 skills 目錄，例如：
+    # - "../your-project/.github/skills"
 
 # ============================================
 # 開發伺服器配置（用於行為驗證）
