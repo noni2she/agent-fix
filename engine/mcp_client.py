@@ -44,6 +44,13 @@ class MCPClientManager:
             if not cfg.enabled:
                 continue
             try:
+                if cfg.pre_launch:
+                    import subprocess, time
+                    print(f"  ⚙️  pre_launch [{name}]: {cfg.pre_launch}")
+                    subprocess.Popen(cfg.pre_launch, shell=True)
+                    print(f"  ⏳ 等待 {cfg.pre_launch_wait} 秒...")
+                    time.sleep(cfg.pre_launch_wait)
+
                 server_params = StdioServerParameters(
                     command=cfg.command,
                     args=cfg.args,

@@ -150,6 +150,14 @@ class MCPServerConfig(BaseModel):
     command: str = Field(description="啟動 MCP server 的命令（如 npx）")
     args: List[str] = Field(default=[], description="命令參數")
     enabled: bool = Field(default=True, description="是否啟用")
+    pre_launch: Optional[str] = Field(
+        default=None,
+        description="MCP server 啟動前執行的 shell 指令（如啟動 Chrome with remote debugging）"
+    )
+    pre_launch_wait: int = Field(
+        default=2,
+        description="pre_launch 執行後等待的秒數，讓程序有時間就緒"
+    )
 
 
 class SkillsConfig(BaseModel):

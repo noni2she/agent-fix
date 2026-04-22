@@ -132,7 +132,14 @@ async def run_in_session(
     print(f"\n{'='*60}")
     print(f"🤖 [{phase_name.upper()}] 執行中...")
     print(f"{'='*60}")
-    print(f"  📏 訊息長度: {len(user_message)} 字元")
+
+    parts = user_message.split("---", 1)
+    task_preview = parts[-1].strip() if len(parts) > 1 else user_message.strip()
+    if len(task_preview) > 800:
+        task_preview = task_preview[:800] + "\n  ...(截斷)"
+    print(f"  📤 發送訊息:\n")
+    for line in task_preview.splitlines():
+        print(f"    {line}")
 
     return await execute_agent_session(
         session=session,
@@ -190,11 +197,13 @@ async def execute_agent_session(
     tool_usage_stats = {}
     start_time = time.time()
     active = True
+    in_message_stream = False
+    after_tool_call = False
 
     warning_points = get_warning_points(agent_name)
 
     def on_event(event: AgentEvent):
-        nonlocal tool_call_count, force_output_requested
+        nonlocal tool_call_count, force_output_requested, in_message_stream, after_tool_call
 
         if not active:
             return
@@ -203,13 +212,21 @@ async def execute_agent_session(
             if event.type == "message":
                 if event.content:
                     response_parts.append(event.content)
-                    print(f"  📝 收集回應: {len(event.content)} 字元")
+                    if not in_message_stream:
+                        print(f"\n  📝 AI 回應:")
+                        print(f"  {'─'*50}")
+                        in_message_stream = True
+                    elif after_tool_call:
+                        print()
+                    after_tool_call = False
+                    print(event.content, end="", flush=True)
 
             elif event.type == "tool_start":
                 tool_call_count += 1
                 tool_name = event.tool_name or "Unknown"
                 tool_usage_stats[tool_name] = tool_usage_stats.get(tool_name, 0) + 1
-                print(f"  🔧 工具呼叫 #{tool_call_count}/{max_tool_calls}: {tool_name}")
+                print(f"\n\n  🔧 工具呼叫 #{tool_call_count}/{max_tool_calls}: {tool_name}\n")
+                after_tool_call = True
 
                 _handle_tool_limit_warning(
                     tool_call_count=tool_call_count,
@@ -224,6 +241,10 @@ async def execute_agent_session(
                     force_output_requested = True
 
             elif event.type == "idle":
+                if in_message_stream:
+                    print()
+                    in_message_stream = False
+                print(f"  {'─'*50}")
                 print(f"  ✅ Phase 完成，共 {tool_call_count} 次工具呼叫")
                 done.set()
 
@@ -231,8 +252,6 @@ async def execute_agent_session(
             pass
 
     session.on(on_event)
-
-    print(f"  📤 發送訊息...")
     asyncio.create_task(session.send(context))
 
     try:
