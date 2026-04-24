@@ -299,14 +299,73 @@ webhook 觸發（人類新增 comment）
 
 ---
 
-## 階段 6：並行執行 — Git Worktree（v3.3，規劃中）
+## 階段 6：Mock Reproduction — 備用重現手法（規劃中）
+
+> **背景**：瀏覽器重現依賴真實環境（登入、session、dev server），在 AI 操作場景下
+> 容易因環境因素失敗（如未登入導致 API 4xx）。需要一種不依賴真實環境的備用重現手法，
+> 透過 mock 隔離依賴、模擬操作步驟，以 TDD 方式證明 bug 存在：
+> 先確認 test FAIL（bug 重現），修復後確認 test PASS（bug 消失）。
+
+### 定位
+
+**不是瀏覽器重現的替代，而是同等地位的另一種重現方式**，由 issue 特性決定使用哪種：
+
+| Issue 特性 | 優先手法 |
+|-----------|---------|
+| 需要真實 session / 登入 / SSE / WebSocket | Browser Reproduction |
+| 純元件行為（props → output）| Mock Reproduction |
+| 元件互動（click → state 變化）| Mock Reproduction（穩定）或 Browser |
+| 導航 / 路由跳轉 | Browser Reproduction |
+
+### 前置條件
+
+- 目標專案需有 test infra（Jest / Vitest + @testing-library/react + msw）
+- `config.yaml` 新增 `reproduction.mock.enabled`，無 test infra 的專案設為 false
+
+### 架構設計
+
+```
+reproduce step
+  ├── Stage 1：Browser Reproduction（chrome-devtools MCP）
+  │     └── 成功 → confirmed，繼續根因分析
+  │     └── 失敗（環境因素）→ 記錄問題 → 嘗試 Stage 2
+  └── Stage 2：Mock Reproduction
+        └── AI 產出 per-issue test file（issues/reproductions/<issue-id>.test.tsx）
+        └── 跑一次確認 FAIL（bug 重現）→ confirmed，繼續根因分析
+        └── 無法寫出有效 mock test → need_more_info，停止
+```
+
+### Mock Test 規範
+
+- **位置**：`issues/reproductions/<issue-id>.test.tsx`（per-issue，隨 issue 生滅）
+- **護欄**：test 必須先跑一次確認 FAIL，否則視為無效（防止 false green）
+- **可選升級**：bug 修復後，有意義的 test 可移入專案的 `__tests__/` 作為 regression test
+
+### 需要做的事
+
+**前置**
+- [ ] 確認目標專案 test infra 就緒（Jest / Vitest + RTL + msw）
+- [ ] `config.yaml` 新增 `reproduction` 區塊：`mock.enabled`、`mock.runner`（jest | vitest）
+
+**Skill**
+- [ ] 新增 `reproduce-via-mock` skill（獨立 SKILL.md）
+- [ ] 說明如何 mock store（Zustand）、API（msw）、router（next/navigation）
+- [ ] 說明「先確認 FAIL 再繼續」的護欄機制
+- [ ] `bugfix-analyze` Step 0 加入 reproduction 方式選擇邏輯
+
+**Workflow**
+- [ ] `run_typescript_check` 等 quality check 工具補充 mock test runner 指令
+
+---
+
+## 階段 7：並行執行 — Git Worktree（v3.3，規劃中）
 
 - [ ] 每個 issue 建立獨立 git worktree（temp branch）
 - [ ] `asyncio.gather` 並行執行 `_execute_workflow()`（可設 max_workers）
 - [ ] PASS 後 merge worktree；FAIL 後 discard
 - [ ] Config：`batch.parallel: true`、`batch.max_workers: 3`
 
-## 階段 7：Retro 機制 — Skill 持續進化（規劃中）
+## 階段 8：Retro 機制 — Skill 持續進化（規劃中）
 
 > **目標**：每次修復工作流結束後，可透過 retro 階段提煉經驗，持續改善 skills 與專案配置。
 
@@ -345,7 +404,7 @@ retro 發現改善點
 - 避免 over-fit：跨 issue 分析比單次 retro 更重要
 - 避免 skill 碎片化：設 threshold（同類問題 3+ 次才改 skill）
 
-## 階段 8：整合 behavior-validation Skill（待實作）
+## 階段 9：整合 behavior-validation Skill（待實作）
 
 > **背景**：`.github/skills/behavior-validation/` 提供 Playwright-based 瀏覽器驗證能力，應取代 `bugfix-test` Phase 4 目前使用的 `agent-browser` CLI 佔位符。
 
@@ -370,7 +429,7 @@ retro 發現改善點
 
 ---
 
-## 階段 9：獨立 Plugin（可選，待架構穩定後進行）
+## 階段 10：獨立 Plugin（可選，待架構穩定後進行）
 
 - [ ] 將通用 skills 包裝為 `.claude-plugin/` 格式
 - [ ] 建立 `plugin.json`、`marketplace.json`
@@ -379,7 +438,7 @@ retro 發現改善點
 
 ---
 
-## 階段 10：Issue Discovery Layer — 主動發現問題（規劃中）
+## 階段 11：Issue Discovery Layer — 主動發現問題（規劃中）
 
 > **背景**：目前 agent-fix 是被動的——等使用者提供 issue 清單才啟動修復。
 > Issue Discovery Layer 作為 Orchestrator 的上層，負責主動掃描或探索問題，
