@@ -285,6 +285,44 @@ def _setup_google_sheets(current_opts: dict) -> dict:
     return opts
 
 
+def _print_chrome_setup_hint(config_path: Path) -> None:
+    """若 chrome-devtools MCP 已啟用，印出一次性登入設定提示。"""
+    import yaml
+
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+    except Exception:
+        return
+
+    mcp = config.get("mcp_servers", {}).get("chrome-devtools", {})
+    if not mcp.get("enabled", False):
+        return
+
+    pre_launch = mcp.get(
+        "pre_launch",
+        "open -na 'Google Chrome' --args --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug"
+    )
+
+    print()
+    print("─" * 50)
+    print("🌐 Chrome DevTools MCP 已啟用 — 首次使用前請完成登入設定")
+    print("─" * 50)
+    print()
+    print("  請依序執行以下步驟（一次性設定）：")
+    print()
+    print("  1. 開啟 Chrome（帶 remote debugging）：")
+    print(f"     {pre_launch}")
+    print()
+    print("  2. 在開啟的 Chrome 中登入目標專案帳號")
+    print()
+    print("  3. 關閉 Chrome")
+    print()
+    print("  ✅ 完成後登入狀態會保留，之後執行 batch 時自動沿用。")
+    print("     ⚠️  重開機後 /tmp/chrome-debug 會被清除，需重新執行上述步驟。")
+    print("─" * 50)
+
+
 def command_init(args) -> int:
     """智慧初始化：用 LLM agent 探索專案，自動生成 config.yaml"""
     import asyncio
@@ -308,6 +346,7 @@ def command_init(args) -> int:
         ))
 
         _interactive_setup(output_path)
+        _print_chrome_setup_hint(output_path)
 
         print()
         print("📝 下一步：")
