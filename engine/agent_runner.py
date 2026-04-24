@@ -219,7 +219,15 @@ async def execute_agent_session(
                     elif after_tool_call:
                         print()
                     after_tool_call = False
-                    print(event.content, end="", flush=True)
+
+                    # 格式化：結尾 ':' 換成 '.' 並換行，讓段落清晰分開
+                    content = event.content
+                    stripped = content.rstrip()
+                    if stripped.endswith(":"):
+                        content = stripped[:-1] + "." + content[len(stripped):]
+                        print(content, end="\n", flush=True)
+                    else:
+                        print(content, end="", flush=True)
 
             elif event.type == "tool_start":
                 tool_call_count += 1
