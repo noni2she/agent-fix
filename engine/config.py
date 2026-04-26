@@ -174,7 +174,14 @@ class SkillsConfig(BaseModel):
 
 class ProjectConfig(BaseModel):
     """專案配置（從 YAML 載入）"""
-    
+
+    # 內部欄位：由 from_yaml() 注入 config 檔的 stem（不來自 YAML）
+    # 用於決定 issues/ 子目錄名稱，確保多專案不衝突
+    project_key: Optional[str] = Field(
+        default=None,
+        description="Config 檔案 stem（如 morse-webapp），由 from_yaml 自動設定，非 YAML 欄位"
+    )
+
     project_name: str = Field(
         description="專案名稱"
     )
@@ -245,7 +252,7 @@ class ProjectConfig(BaseModel):
         default={"port": 3001, "command": None},
         description="開發伺服器配置"
     )
-    
+
     @field_validator('issue_prefix')
     @classmethod
     def validate_issue_prefix(cls, v: str) -> str:
@@ -301,7 +308,10 @@ class ProjectConfig(BaseModel):
         yaml_data = cls._resolve_template_variables(yaml_data)
         
         try:
-            return cls(**yaml_data)
+            config = cls(**yaml_data)
+            # 注入 config 檔 stem 作為 project_key（如 morse-webapp.yaml → morse-webapp）
+            object.__setattr__(config, 'project_key', config_file.stem)
+            return config
         except Exception as e:
             raise ValueError(f"Configuration validation failed: {e}")
     
@@ -347,7 +357,22 @@ class ProjectConfig(BaseModel):
     def get_project_root(self) -> Path:
         """取得專案根目錄的絕對路徑"""
         return Path(self.paths.root).resolve()
-    
+
+    def get_project_key(self) -> str:
+        """
+        取得 issues/ 子目錄名稱（用於多專案隔離）。
+        優先使用 config 檔 stem（from_yaml 自動注入），
+        否則將 project_name 正規化（小寫、非英數字元轉 '-'）。
+
+        例：
+          morse-webapp.yaml       → "morse-webapp"
+          "Morse Web App"（無檔） → "morse-web-app"
+        """
+        import re
+        if self.project_key:
+            return self.project_key
+        return re.sub(r'[^a-z0-9]+', '-', self.project_name.lower()).strip('-')
+
     def get_workspace_command(self, base_command: str) -> str:
         """
         產生 workspace 命令

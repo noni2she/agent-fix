@@ -175,8 +175,8 @@ Rules:
 **Project**: {cfg.project_name} ({cfg.framework})
 **Target project root** (read/modify source code here): {project_root}
 **Agent root** (write reports & screenshots here): {agent_root}
-- Reports: `{agent_root}/issues/reports/<issue-id>/`
-- Screenshots: `{agent_root}/issues/screenshots/<issue-id>/`
+- Reports: `{agent_root}/issues/reports/{cfg.get_project_key()}/<issue-id>/`
+- Screenshots: `{agent_root}/issues/screenshots/{cfg.get_project_key()}/<issue-id>/`
 
 ### Commands
 
@@ -270,8 +270,9 @@ async def _execute_workflow(
 
     mcp_manager：可從外部傳入（batch 模式共用），若為 None 則自行建立與關閉。
     """
-    # issues/ 報告目錄：固定放在 agent root（不是被修正的目標專案）
-    report_dir = AGENT_ROOT / "issues" / "reports"
+    # issues/ 報告目錄：issues/reports/<project-key>/（固定在 agent root，不是目標專案）
+    project_key = config.get_project_key()
+    report_dir = AGENT_ROOT / "issues" / "reports" / project_key
     report_dir.mkdir(parents=True, exist_ok=True)
 
     # 透過 issue source adapter 取得 issue 資料
@@ -336,7 +337,7 @@ Issue report:
 
 Target project root (source code): {project_root}
 Write analysis report to: {report_dir / issue_id / "analyze.md"}
-Write screenshots to: {AGENT_ROOT / "issues" / "screenshots" / issue_id}/
+Write screenshots to: {AGENT_ROOT / "issues" / "screenshots" / project_key / issue_id}/
 """
     await run_in_session(main_session, "analyze", analyze_msg, max_tool_calls=50)
 
@@ -508,7 +509,7 @@ async def run_batch_workflow(issue_ids: list[str]):
             try:
                 await _execute_workflow(issue_id, config, project_root, mcp_manager=shared_mcp)
                 # 讀取 analyze status 判斷是否真的跑完修復，或是中途中止
-                report_dir = AGENT_ROOT / "issues" / "reports"
+                report_dir = AGENT_ROOT / "issues" / "reports" / config.get_project_key()
                 status = read_analyze_status(issue_id, report_dir)
                 if status in ("already_fixed", "need_more_info", "missing"):
                     skipped.append(issue_id)

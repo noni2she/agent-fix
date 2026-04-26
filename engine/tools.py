@@ -28,7 +28,11 @@ from .config import ProjectConfig
 # ==========================================
 
 _project_config: Optional[ProjectConfig] = None
-_current_issue_id: Optional[str] = None  # 由 workflow 在每個 phase 開始前設定
+_current_issue_id: Optional[str] = None    # 由 workflow 在每個 phase 開始前設定
+_current_project_key: Optional[str] = None  # 由 workflow 初始化時設定，用於 issues/ 子目錄隔離
+
+# agent 根目錄（tools.py 位於 engine/，往上一層是 agent root）
+_AGENT_ROOT = Path(__file__).parent.parent.resolve()
 
 
 def init_tools(config: ProjectConfig):
@@ -38,9 +42,10 @@ def init_tools(config: ProjectConfig):
     Args:
         config: 專案配置物件
     """
-    global _project_config
+    global _project_config, _current_project_key
     _project_config = config
-    print(f"  🔧 Tools initialized for project: {config.project_name}")
+    _current_project_key = config.get_project_key()
+    print(f"  🔧 Tools initialized for project: {config.project_name} (key: {_current_project_key})")
 
 
 def set_current_issue_id(issue_id: str):
@@ -187,8 +192,16 @@ def run_behavior_validation(scenario_json: str) -> str:
         return f"❌ 無效的 scenario JSON: {e}"
 
     # 優先使用 workflow 注入的 issue_id（避免 AI 自訂 name 產生 v2/重複目錄）
+    # 優先使用 workflow 注入的 issue_id（避免 AI 自訂 name 產生 v2/重複目錄）
     issue_id = _current_issue_id or scenario_data.get("name", "unknown")
     project_root = config.get_project_root()
+
+    # 截圖目錄：issues/screenshots/<project-key>/<issue-id>/
+    screenshot_dir = (
+        _AGENT_ROOT / "issues" / "screenshots" / _current_project_key
+        if _current_project_key
+        else _AGENT_ROOT / "issues" / "screenshots"
+    )
 
     # 從 config.dev_server 取得啟動命令
     dev_command = None
@@ -212,6 +225,7 @@ def run_behavior_validation(scenario_json: str) -> str:
                 headless=bv_config.headless,
                 dev_command=dev_command,
                 channel=bv_config.channel,
+                screenshot_dir=screenshot_dir,
             )
             report = loop.run_until_complete(
                 validator.validate(issue_id, dynamic_scenario=scenario_data)
