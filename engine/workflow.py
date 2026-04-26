@@ -137,8 +137,7 @@ When `verification_method == "e2e"`, call the `run_behavior_validation` tool wit
     {{"type": "goto",       "value": "/path"}},
     {{"type": "wait_for",  "selector": "#element",          "timeout": 10000}},
     {{"type": "click",     "selector": "#button"}},
-    {{"type": "type",      "selector": "input#name",        "value": "text input"}},
-    {{"type": "screenshot","description": "after action"}}
+    {{"type": "type",      "selector": "input#name",        "value": "text input"}}
   ],
   "assertions": [
     {{"type": "visible",      "selector": "#element",   "expected": true}},
@@ -153,7 +152,7 @@ Dev server: http://localhost:{dev_port}
 Rules:
 - Always start with a `goto` action
 - Use `wait_for` before interacting with dynamically rendered elements
-- Add `screenshot` steps at key checkpoints (after major interactions)
+- Do NOT add `screenshot` actions — Python takes a screenshot automatically on failure
 - Design assertions based on `reproduction_steps` and expected fix outcome
 """
 

@@ -107,8 +107,6 @@ class PlaywrightRunner:
         ]
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if exc_type and self.page:
-            await self._screenshot("error")
         if self.browser:
             await self.browser.close()
         if self.playwright:
