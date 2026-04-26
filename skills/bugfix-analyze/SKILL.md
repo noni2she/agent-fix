@@ -34,51 +34,58 @@ Issue 可能為兩種格式：
 
 **⚠️ 工具使用效率原則：盡量用最少的步驟定位問題**
 
-### Step 0: 確認問題存在（必做）
+### Step 0: 重現問題（瀏覽器優先）
 
-**在進行完整 RCA 之前，先確認問題確實存在於當前 codebase。**
+**Step 0 的職責是「重現」，不是「分析」。** 透過瀏覽器親自操作出 `actual` 描述的錯誤現象，才算重現成功。重現成功後才進入 Step 1 RCA。
+
+> ⚠️ 不要在 Step 0 做程式碼追蹤或根因推理——那是 Steps 1–4 的工作。Step 0 只觀察「現象」。
 
 #### 0.1 提取驗證依據
 
-從 issue 中提取：
+從 issue 中提取重現所需資訊：
+
 - `reproduction_steps` — 重現步驟
 - `expected` / `actual` — 預期行為 vs 實際行為
 - `module` — 問題所在模組
+- `comments` — **若 issue 來源是 Jira/Issue Tracker，需檢查 comments**，常包含補充重現條件、環境資訊、reporter 後續發現
 
-#### 0.2 選擇驗證方式
+#### 0.2 瀏覽器重現（所有問題類型的預設路徑）
 
-| 問題類型 | 驗證方式 |
-|---------|---------|
-| 邏輯錯誤（條件判斷、資料處理、missing prop） | 靜態程式碼閱讀 |
-| UI 文字、樣式錯誤 | 靜態程式碼閱讀 |
-| 互動行為（點擊、導航、狀態變化） | 瀏覽器重現（依 Project Context 定義的 dev server） |
-| 無法確定 | 先靜態閱讀，不足時改用瀏覽器驗證 |
+**所有 issue 類型（互動類、樣式類、邏輯類）一律先走瀏覽器重現。** 邏輯類雖然根因在程式碼，但通常會在瀏覽器顯示為 console error / network 4xx-5xx / UI 異常，瀏覽器仍是最直接的觀察現場。
 
-#### 0.3 靜態驗證
+使用可用的瀏覽器 MCP 工具，依照 `reproduction_steps` 逐步操作：
 
-1. 根據 `module` 和 `actual` 推斷最可能的相關檔案（1-2 個）
-2. 按照 `reproduction_steps` 的邏輯追蹤程式碼路徑
-3. 確認 `actual` 描述的行為是否仍存在於程式碼中
+1. 確認 dev server 運行中（參考 Project Context 的啟動命令）
+2. `navigate_page` 先導回 **專案首頁**，確保每個 issue 從乾淨狀態開始
+3. 依照 issue 的進入點，`navigate_page` 打開問題頁面
+4. 依照 `reproduction_steps` 逐步操作（`click` / `fill` / `press_key` / `navigate_page`）
+5. **確認 `actual` 描述的錯誤行為真的出現** → 這是此步驟的核心目標
+6. `take_screenshot` 截圖記錄失敗狀態，存入 `issues/reports/<issue-id>/reproduction.png`
+7. `list_console_messages` 找 type=error 的 runtime exception
+8. `list_network_requests` 找失敗的 API（4xx / 5xx），必要時用 `get_network_request` 看 payload
+9. 若有必要，`evaluate_script` 驗證 DOM 狀態或 store 值
 
-#### 0.4 瀏覽器驗證（互動類問題）
+**重現成功的標準**：操作完 `reproduction_steps` 後，觀察到的行為與 `actual` 描述一致（樣式類則為視覺呈現與 `actual` 一致）。
 
-當問題涉及 UI 互動、頁面導航、或靜態閱讀無法確認時，使用可用的**瀏覽器 MCP 工具**在真實瀏覽器中觀察 runtime 行為：
+#### 0.3 重現失敗 fallback（靜態觀察）
 
-1. 確認 dev server 是否運行中（參考 Project Context 的啟動命令）
-2. `navigate_page` 打開問題頁面，按照 `reproduction_steps` 逐步操作（`click` / `fill` / `press_key`）
-3. `list_console_messages` 找 type=error 的 runtime exception
-4. `list_network_requests` 找失敗的 API（4xx / 5xx），必要時用 `get_network_request` 看 payload
-5. `evaluate_script` 驗證可疑邏輯假設（如檢查 DOM 屬性、state 值）
-6. `take_screenshot` 記錄存入 `issues/reports/<issue-id>/reproduction.png`
-7. 整理觀察結果：console errors / API failures / JS 驗證，帶入 Step 1–4 分析
+當瀏覽器無法重現時——常見原因：未登入 / 權限不足 / 缺少測試資料 / 環境異常 / 頁面跳轉錯誤——執行以下記錄後退回靜態觀察：
 
-#### 0.5 根據結果決定後續動作
+1. `take_screenshot` 截圖當前失敗狀態，存入 `issues/reports/<issue-id>/reproduction-failed.png`
+2. `list_console_messages` 記錄所有 type=error 的訊息
+3. `list_network_requests` 記錄失敗的 API（4xx / 5xx）
+4. 將觀察到的阻礙（如「未登入導致 401」、「跳轉到 /login」、「缺少 mock 資料」）記入 `Browser Reproduction Issues`
+5. 進入 Step 1 RCA，但**最終報告 status 必須標為 `need_more_info`**（confidence 降級，因為缺少現象佐證）
 
-| 結果 | 後續動作 |
-|------|---------|
-| **問題仍存在** | 繼續 Step 1–4 完整分析 |
-| **問題已被修正** | 輸出 `already_fixed` 報告，**停止分析** |
-| **無法確認** | 繼續 Step 1–2 蒐集線索，再判斷 |
+> 純邏輯問題（無 UI 出口、僅在 unit test 才能觀察）也走此路徑：記錄「無法在瀏覽器觀察」後進入 Step 1。
+
+#### 0.4 根據結果決定後續動作
+
+| 結果 | 後續動作 | Status |
+|------|---------|--------|
+| **重現成功** | 繼續 Step 1–4 完整分析 | `confirmed`（最終由分析品質決定） |
+| **問題已被修正**（操作後 actual 行為消失，符合 expected） | 輸出 `already_fixed` 報告，**停止分析** | `already_fixed` |
+| **重現失敗**（環境/登入/資料問題） | 記錄阻礙 → 進入 Step 1 嘗試推敲 | `need_more_info` |
 
 **已修正時的報告格式：**
 
@@ -160,6 +167,7 @@ Issue 可能為兩種格式：
 - **Code Snippet**: <問題程式碼片段>
 - **Suggested Fix**: <建議修復方式>
 - **Confidence Score**: <0-1 的置信度>
+- **Browser Reproduction Issues**: <瀏覽器重現時碰到的阻礙，如未登入導致 401、頁面跳轉錯誤、缺少測試資料等>（重現失敗時必填，即使靜態分析後仍找到根因也保留）
 ```
 
 **如果是純邏輯 Bug**，額外提供：
