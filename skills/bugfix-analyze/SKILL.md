@@ -166,7 +166,8 @@ Issue 可能為兩種格式：
 **執行步驟：**
 
 1. 列舉 ≥ 2 種候選修復方案（functional 上都能解決 bug）
-2. 依問題類型，用 `search_files` grep `ux-guidelines.csv` 篩選相關規則：
+2. 依問題類型，用 `search_files` grep `ux-guidelines.csv` 篩選相關規則
+   （資料來源：[UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)，MIT License）：
 
    | 問題類型 | grep Category |
    |---------|--------------|
