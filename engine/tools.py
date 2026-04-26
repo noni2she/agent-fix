@@ -28,6 +28,7 @@ from .config import ProjectConfig
 # ==========================================
 
 _project_config: Optional[ProjectConfig] = None
+_current_issue_id: Optional[str] = None  # 由 workflow 在每個 phase 開始前設定
 
 
 def init_tools(config: ProjectConfig):
@@ -40,6 +41,16 @@ def init_tools(config: ProjectConfig):
     global _project_config
     _project_config = config
     print(f"  🔧 Tools initialized for project: {config.project_name}")
+
+
+def set_current_issue_id(issue_id: str):
+    """
+    設定目前正在處理的 issue ID（由 workflow 在每個 phase 開始前呼叫）。
+    確保 run_behavior_validation 的截圖目錄固定使用 issue_id，
+    不受 AI 自訂的 scenario name 影響。
+    """
+    global _current_issue_id
+    _current_issue_id = issue_id
 
 
 def _get_config() -> ProjectConfig:
@@ -175,7 +186,8 @@ def run_behavior_validation(scenario_json: str) -> str:
     except json.JSONDecodeError as e:
         return f"❌ 無效的 scenario JSON: {e}"
 
-    issue_id = scenario_data.get("name", "unknown")
+    # 優先使用 workflow 注入的 issue_id（避免 AI 自訂 name 產生 v2/重複目錄）
+    issue_id = _current_issue_id or scenario_data.get("name", "unknown")
     project_root = config.get_project_root()
 
     # 從 config.dev_server 取得啟動命令

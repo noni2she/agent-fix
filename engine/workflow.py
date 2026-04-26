@@ -1,6 +1,6 @@
 # engine/workflow.py
 """
-Agent Fix v3.1 — Skill-Based Workflow Engine
+Agent Bugfix v3.1 — Skill-Based Workflow Engine
 
 Skills 架構：
   - 通用 skills：agent-fix/skills/（流程邏輯，不含專案細節）
@@ -34,7 +34,7 @@ from .agent_runner import (
     INIT_TOOLS,
 )
 from .mcp_client import MCPClientManager
-from .tools import init_tools
+from .tools import init_tools, set_current_issue_id
 
 # skills/ 目錄路徑：相對於此檔案，往上一層再進 skills/
 # 安裝後位於 site-packages/engine/workflow.py，skills/ 也會在 site-packages/skills/
@@ -53,7 +53,7 @@ def init_workflow() -> tuple[ProjectConfig, ProjectSpec, Path]:
     load_dotenv()
 
     print("\n" + "=" * 60)
-    print("🚀 Agent Fix v3.1 — Skill-Based")
+    print("🚀 Agent Bugfix v3.1 — Skill-Based")
     print("=" * 60)
 
     config = load_config_from_env()
@@ -113,13 +113,21 @@ def load_project_context(config: ProjectConfig, project_root: Path) -> str:
     tactical_rows.append("| Other | **DIRECT** | Isolated module |")
     tactical_table = "\n".join(tactical_rows)
 
-    # Coding Standards Skill（可選）
-    coding_std = cfg.skills.coding_standards_skill
-    coding_standards_section = (
-        f"\n### Coding Standards Skill\n\n`coding_standards_skill: {coding_std}`\n\n"
-        f"修復涉及核心模組、資料獲取或新增依賴時，載入此 skill 查閱對應規則。"
-        if coding_std else ""
-    )
+    # Skills Directories（注入所有可用 skill 路徑）
+    skill_dirs = cfg.skills.directories
+    skills_section = ""
+    if skill_dirs:
+        dirs_list = "\n".join(f"- {d}" for d in skill_dirs)
+        skills_section = f"""
+### Available Skills Directories
+
+當 skill 指示你載入其他 skill（如 `/vercel-react-best-practices`、`/web-design-guidelines`）時，
+在以下目錄中尋找對應的 `<skill-name>/SKILL.md` 檔案：
+
+{dirs_list}
+
+用 `read_file` 讀取後再依照規則撰寫程式碼。
+"""
 
     # Behavior Validation scenario schema（只在 enabled 時注入）
     bv_section = ""
@@ -189,7 +197,7 @@ Dev server URL: http://localhost:{dev_port}
 - Shared packages: {', '.join(cfg.paths.shared_packages) or 'none'}
 - Shared components: {', '.join(cfg.paths.shared_components) or 'none'}
 - Isolated modules: {', '.join(cfg.paths.isolated_modules) or 'none'}
-{f'- Domain logic: {chr(44).join(cfg.paths.domain_logic)}' if cfg.paths.domain_logic else ''}{coding_standards_section}{bv_section}
+{f'- Domain logic: {chr(44).join(cfg.paths.domain_logic)}' if cfg.paths.domain_logic else ''}{skills_section}{bv_section}
 ---
 """
 
@@ -207,6 +215,8 @@ def read_analyze_status(issue_id: str, report_dir: Path) -> str:
     if not report.exists():
         return "missing"
     text = report.read_text(encoding='utf-8')
+    if re.search(r'\*\*Status\*\*[:\s]+already_fixed', text, re.IGNORECASE):
+        return "already_fixed"
     if re.search(r'\*\*Status\*\*[:\s]+confirmed', text, re.IGNORECASE):
         return "confirmed"
     if re.search(r'\bconfirmed\b', text, re.IGNORECASE) and \
@@ -239,12 +249,19 @@ def read_report(issue_id: str, report_type: str, report_dir: Path, retry: int = 
 # Workflow
 # ==========================================
 
-async def _execute_workflow(issue_id: str, config: ProjectConfig, project_root: Path):
+async def _execute_workflow(
+    issue_id: str,
+    config: ProjectConfig,
+    project_root: Path,
+    mcp_manager=None,
+):
     """
     執行完整 bug fix 流程：
       Phase 1 (analyze) + Phase 2 (implement) → 共用 session
       Phase 3 (test) → 每次 fork 新 session
       Test FAIL → retry implement 回主 session（帶失敗回饋）
+
+    mcp_manager：可從外部傳入（batch 模式共用），若為 None 則自行建立與關閉。
     """
     # issues/ 報告目錄
     report_dir = Path("issues/reports")
@@ -263,6 +280,9 @@ async def _execute_workflow(issue_id: str, config: ProjectConfig, project_root: 
         sys.exit(1)
     issue_json = json.dumps(issue_report, ensure_ascii=False, indent=2)
 
+    # 鎖定 issue_id，確保 run_behavior_validation 截圖目錄不受 AI scenario name 影響
+    set_current_issue_id(issue_id)
+
     # 載入通用 skills + 動態生成專案 context
     _, analyze_body = load_skill("bugfix-analyze", SKILLS_DIR)
     _, implement_body = load_skill("bugfix-implement", SKILLS_DIR)
@@ -270,19 +290,20 @@ async def _execute_workflow(issue_id: str, config: ProjectConfig, project_root: 
     project_context = load_project_context(config, project_root)
 
     print(f"\n{'=' * 60}")
-    print(f"  Agent Fix v3.1 (Skill-Based)")
+    print(f"  Agent Bugfix v3.1 (Skill-Based)")
     print(f"  Project: {config.project_name}")
     print(f"  Issue: {issue_id}")
     print(f"{'=' * 60}")
 
     # ----------------------------------------
-    # 建立 MCP manager（analyze phase 使用）
+    # MCP manager：外部傳入則共用，否則自行建立
     # ----------------------------------------
-    enabled_mcp = {k: v for k, v in config.mcp_servers.items() if v.enabled}
-    mcp_manager = None
-    if enabled_mcp:
-        print("\n🔌 啟動 MCP servers (analyze phase)...")
-        mcp_manager = await MCPClientManager.create(enabled_mcp)
+    _owns_mcp = mcp_manager is None
+    if _owns_mcp:
+        enabled_mcp = {k: v for k, v in config.mcp_servers.items() if v.enabled}
+        if enabled_mcp:
+            print("\n🔌 啟動 MCP servers (analyze phase)...")
+            mcp_manager = await MCPClientManager.create(enabled_mcp)
 
     # ----------------------------------------
     # 建立主 session（analyze + implement 共用）
@@ -312,8 +333,15 @@ Project root: {project_root}
 
     status = read_analyze_status(issue_id, report_dir)
     print(f"\n  📊 Analyze status: {status}")
+    if status == "already_fixed":
+        print(f"\n  ✅ Issue already fixed in codebase, no action needed.")
+        print(f"     Report: issues/reports/{issue_id}/analyze.md")
+        if mcp_manager:
+            await mcp_manager.stop()
+        return
     if status != "confirmed":
-        print(f"\n  ❌ Analysis not confirmed (status={status}), workflow terminated")
+        print(f"\n  ⏸️  Analysis stopped (status={status}) — insufficient information to proceed.")
+        print(f"     Check issues/reports/{issue_id}/analyze.md for known findings.")
         if mcp_manager:
             await mcp_manager.stop()
         return
@@ -343,8 +371,8 @@ Project Context (commands & paths):
 {project_context}"""
     await run_in_session(main_session, "implement", implement_msg, max_tool_calls=30)
 
-    # MCP servers 只在 analyze + implement 階段使用，test phase 前關閉
-    if mcp_manager:
+    # MCP servers：自行建立的才在此關閉；外部共用的由 batch 層負責關閉
+    if _owns_mcp and mcp_manager:
         await mcp_manager.stop()
         mcp_manager = None
         print("\n🔌 MCP servers stopped")
@@ -428,6 +456,88 @@ Context:
             print(f"\n  💀 Max retries ({max_retries}) reached, workflow terminated")
 
 
+async def run_batch_workflow(issue_ids: list[str]):
+    """
+    批次執行：依序處理每個 issue，逐一執行完整 bug fix 流程。
+    任一 issue 失敗不中斷後續執行，最後彙總結果。
+    """
+    try:
+        config, spec, project_root = init_workflow()
+    except ConfigurationError as e:
+        print(f"\n❌ Configuration Error: {e}\n")
+        sys.exit(1)
+
+    total = len(issue_ids)
+    passed: list[str] = []
+    skipped: list[str] = []   # already_fixed or need_more_info
+    failed: list[str] = []
+
+    print(f"""
+╭──────────────────────────────────────────────────────────╮
+│      Agent Bugfix v3.1 — Batch Mode                      │
+│      Project: {config.project_name:<38}│
+│      Issues:  {total:<38}│
+╰──────────────────────────────────────────────────────────╯
+""")
+
+    loop = asyncio.get_event_loop()
+    restore = setup_sdk_error_silencing(loop)
+
+    # 建立共用 MCP manager（所有 issue 共用同一個 Chrome instance）
+    enabled_mcp = {k: v for k, v in config.mcp_servers.items() if v.enabled}
+    shared_mcp = None
+    if enabled_mcp:
+        print("\n🔌 啟動 MCP servers（batch 共用）...")
+        shared_mcp = await MCPClientManager.create(enabled_mcp)
+
+    try:
+        for idx, issue_id in enumerate(issue_ids, 1):
+            print(f"\n{'═'*60}")
+            print(f"  [{idx}/{total}] {issue_id}")
+            print(f"{'═'*60}")
+            try:
+                await _execute_workflow(issue_id, config, project_root, mcp_manager=shared_mcp)
+                # 讀取 analyze status 判斷是否真的跑完修復，或是中途中止
+                report_dir = Path("issues/reports")
+                status = read_analyze_status(issue_id, report_dir)
+                if status in ("already_fixed", "need_more_info", "missing"):
+                    skipped.append(issue_id)
+                else:
+                    passed.append(issue_id)
+            except Exception as e:
+                print(f"\n  ❌ {issue_id} failed: {e}")
+                import traceback
+                traceback.print_exc()
+                failed.append(issue_id)
+    finally:
+        if shared_mcp:
+            await shared_mcp.stop()
+            print("\n🔌 MCP servers stopped (batch)")
+        restore()
+
+    print(f"""
+╭──────────────────────────────────────────────────────────╮
+│      Batch Complete                                       │
+│      ✅ Fixed:   {len(passed):<41}│
+│      ⏸️  Skipped: {len(skipped):<41}│
+│      ❌ Failed:  {len(failed):<41}│
+╰──────────────────────────────────────────────────────────╯""")
+
+    if passed:
+        print("\n  Fixed:")
+        for i in passed:
+            print(f"    ✅ {i}")
+    if skipped:
+        print("\n  Skipped (already_fixed or need_more_info):")
+        for i in skipped:
+            status = read_analyze_status(i, Path("issues/reports"))
+            print(f"    ⏸️  {i}  [{status}]")
+    if failed:
+        print("\n  Failed:")
+        for i in failed:
+            print(f"    ❌ {i}")
+
+
 async def run_init_workflow(project_path: str, output_path: str, issue_prefix: str):
     """
     Smart init：用 LLM agent 探索目標專案，自動生成 config.yaml。
@@ -447,7 +557,7 @@ async def run_init_workflow(project_path: str, output_path: str, issue_prefix: s
     tool_names = [] if sdk == "copilot" else INIT_TOOLS
 
     print("\n" + "=" * 60)
-    print("🚀 Agent Fix — Smart Project Init")
+    print("🚀 Agent Bugfix — Smart Project Init")
     print(f"   Target : {project_path}")
     print(f"   Output : {output_path}")
     print(f"   SDK    : {sdk}")
@@ -478,65 +588,6 @@ Follow the exploration steps in the skill above. Write the generated config.yaml
         restore()
 
 
-async def run_batch_workflow(issue_ids: list[str]):
-    """
-    批次執行：依序處理每個 issue，逐一執行完整 bug fix 流程。
-    任一 issue 失敗不中斷後續執行，最後彙總結果。
-    """
-    try:
-        config, spec, project_root = init_workflow()
-    except ConfigurationError as e:
-        print(f"\n❌ Configuration Error: {e}\n")
-        sys.exit(1)
-
-    total = len(issue_ids)
-    passed: list[str] = []
-    failed: list[str] = []
-
-    print(f"""
-╭──────────────────────────────────────────────────────────╮
-│      Agent Fix v3.1 — Batch Mode                         │
-│      Project: {config.project_name:<38}│
-│      Issues:  {total:<38}│
-╰──────────────────────────────────────────────────────────╯
-""")
-
-    loop = asyncio.get_event_loop()
-    restore = setup_sdk_error_silencing(loop)
-
-    try:
-        for idx, issue_id in enumerate(issue_ids, 1):
-            print(f"\n{'═'*60}")
-            print(f"  [{idx}/{total}] {issue_id}")
-            print(f"{'═'*60}")
-            try:
-                await _execute_workflow(issue_id, config, project_root)
-                passed.append(issue_id)
-            except Exception as e:
-                print(f"\n  ❌ {issue_id} failed: {e}")
-                import traceback
-                traceback.print_exc()
-                failed.append(issue_id)
-    finally:
-        restore()
-
-    print(f"""
-╭──────────────────────────────────────────────────────────╮
-│      Batch Complete                                       │
-│      ✅ Passed: {len(passed):<41}│
-│      ❌ Failed: {len(failed):<41}│
-╰──────────────────────────────────────────────────────────╯""")
-
-    if passed:
-        print("\n  Passed:")
-        for i in passed:
-            print(f"    ✅ {i}")
-    if failed:
-        print("\n  Failed:")
-        for i in failed:
-            print(f"    ❌ {i}")
-
-
 async def run_workflow(issue_id: str):
     """
     CLI entry point：初始化 workflow 後執行完整修復流程。
@@ -557,7 +608,7 @@ async def run_workflow(issue_id: str):
 
     print(f"""
 ╭──────────────────────────────────────────────────────────╮
-│      Agent Fix v3.1 (Skill-Based)                        │
+│      Agent Bugfix v3.1 (Skill-Based)                     │
 │      Project: {config.project_name:<38}│
 │      Issue:   {issue_id:<38}│
 ╰──────────────────────────────────────────────────────────╯
