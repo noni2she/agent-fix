@@ -220,12 +220,12 @@ async def execute_agent_session(
                         print()
                     after_tool_call = False
 
-                    # 格式化：結尾 ':' 換成 '.' 並換行，讓段落清晰分開
+                    # 格式化：結尾 ':' 換成 '.' 並空一行，讓段落清晰分開
                     content = event.content
                     stripped = content.rstrip()
                     if stripped.endswith(":"):
                         content = stripped[:-1] + "." + content[len(stripped):]
-                        print(content, end="\n", flush=True)
+                        print(content, end="\n\n", flush=True)
                     else:
                         print(content, end="", flush=True)
 

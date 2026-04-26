@@ -191,6 +191,10 @@ class ProjectConfig(BaseModel):
         default="typescript",
         description="程式語言"
     )
+    response_language: str = Field(
+        default="繁體中文",
+        description="AI 回應語言（如 '繁體中文'、'English'）"
+    )
     issue_prefix: str = Field(
         default="BUG",
         description="Issue ID 前綴（如 BUG-1234, PROJ-5678）"

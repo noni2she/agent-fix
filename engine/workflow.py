@@ -157,7 +157,9 @@ Rules:
 - Design assertions based on `reproduction_steps` and expected fix outcome
 """
 
-    return f"""## Project Context
+    return f"""> 🌐 語言指令：請以 **{cfg.response_language}** 回覆所有回應（分析報告、說明、摘要），程式碼與指令維持原文。
+
+## Project Context
 
 **Project**: {cfg.project_name} ({cfg.framework})
 **Root**: {project_root}
