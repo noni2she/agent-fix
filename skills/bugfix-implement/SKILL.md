@@ -77,9 +77,17 @@ git branch --show-current
 3. 修正邏輯錯誤
 4. 寫回檔案
 
+```typescript
+// ❌ 修復前
+const buttonText = isFollowing ? '關注' : '回關'
+
+// ✅ 修復後
+const buttonText = isFollowing ? '回關' : '關注'
+```
+
 ### 策略 B: Tactical Fix（戰術性修復）
 
-**適用情境**：共用套件、引用 > 3 次的元件、核心功能（auth、websocket、store）
+**適用情境**：`packages/*`、引用 > 3 次的元件、核心功能（auth, websocket, store）
 
 **執行方式**：
 1. **不要修改原始共用檔案**
@@ -87,38 +95,62 @@ git branch --show-current
 3. 加上 `// TODO` 註解標記技術債
 
 ```typescript
+// ❌ 錯誤做法：直接改共用元件
+// packages/ui/src/components/FollowButton.tsx
+
 // ✅ 正確做法：在呼叫端隔離修復
-// [TODO refactor] ISSUE-1234: Tactical fix to avoid regression
-// 原因: SharedButton 是共用元件，被多個頁面使用，直接修改風險高
-// 未來應: 統一修正共用元件並更新所有呼叫端
-function SafeButton({ isActive, ...props }) {
-  return <SharedButton isActive={!isActive} {...props} />
+// apps/morse-web/src/app/search/page.tsx
+import { FollowButton as BaseFollowButton } from '@/components'
+
+// [TODO refactor] MORSE-1234: Tactical fix to avoid regression
+// 原因: FollowButton 是共用元件，被多個頁面使用，直接修改風險高
+// 未來應: 統一修正 packages/ui/src/components/FollowButton.tsx 並更新所有呼叫端
+function SafeFollowButton({ isFollowing, ...props }) {
+  return <BaseFollowButton isFollowing={!isFollowing} {...props} />
 }
 ```
 
-## Coding Standards
+## React/Next.js Coding Standards
 
-修復程式碼時，根據 **Project Context** 中 `skills.directories` 定義的 skill 路徑，在以下情境載入對應 skill：
+修復程式碼時，在以下情境**必須**載入 `/vercel-react-best-practices` 查閱對應規則後再寫 code：
 
-| 情境 | 建議載入的 skill 類型 |
-|------|----------------------|
-| 新增或修改核心元件/模組 | 架構與效能規則（如 `vercel-react-best-practices`） |
-| 涉及資料獲取（fetch/API call） | 非同步處理規則 |
-| 新增 import 或第三方套件 | 套件管理規則 |
-| 修改 UI 樣式或互動行為 | UI/設計規範（如 `web-design-guidelines`） |
+| 情境 | 需參考的規則分類 |
+|------|----------------|
+| 新增或修改 React component | `rerender-*`、`rendering-*` |
+| 涉及資料獲取（fetch/API call） | `async-*`、`client-*` |
+| 新增 import 或第三方套件 | `bundle-*` |
+| 修改 Server Component | `server-*` |
 
-若 Project Context 未定義 coding standards skill，遵循 Project Context 提供的命名規範即可。
+修改 UI 樣式或互動行為時，使用 `/web-design-guidelines` 對修改的檔案做合規性檢查。
+
+## UX Final Check
+
+> **UX 方案選擇**已在 analyze 階段的 Step 5 完成（grep `ux-guidelines.csv` 評估候選方案）。
+> 此處只做**實作後的快速確認**，確保程式碼沒有引入新的 UX 問題。
+
+寫完修復程式碼後，逐項確認：
+
+- [ ] **Feedback**：動作有回饋嗎？（按鈕點擊後有反應、非同步操作有 loading）
+- [ ] **Error State**：API 失敗或驗證失敗時，使用者看得到明確的錯誤訊息嗎？
+- [ ] **Empty State**：資料為空時有適當的空狀態提示嗎？
+- [ ] **Disabled State**：不可操作的元素有明確的視覺提示嗎？
+- [ ] **Scroll**：有沒有意外產生 nested scroll？（參考 `ux-guidelines.csv` Layout > scroll-behavior）
+- [ ] **一致性**：修復後的 UI 行為與 app 其他同類元素一致嗎？
+- [ ] **不引入新 UX 問題**：修復這個 bug 有沒有讓其他互動變得怪異？
+
+如果上述任一項不符合預期，且問題屬於 layout / scroll / modal / interaction 類，
+用 `search_files` grep `ux-guidelines.csv` 的對應 Category 查詢具體規則後再修正。
 
 ## ✅ Commit 前驗證關卡
 
 **禁止在通過以下驗證前執行 `git commit`。**
 
-根據 **Project Context** 中啟用的 `quality_checks` 逐一執行對應指令（指令定義在 config 的 `quality_checks` 區塊）：
+讀取 **Project Context** 中 `quality_checks` 區塊，逐一執行所有 `enabled: true` 的指令：
 
 - TypeScript 型別檢查（若啟用）：必須 exit code 0，沒有任何 error
 - ESLint（若啟用）：Warning 可接受，Error 不行
 - Prettier（若啟用）：格式必須通過
-- 確認 diff：`git diff` 確認只修改了該改的檔案
+- 確認 diff：`git diff` 確認只修改了該改的檔案，沒有意外變更
 
 驗證失敗時：**不要 commit**，回報錯誤、修正後重新驗證。
 
@@ -132,11 +164,14 @@ git diff
 
 # Step 6: 建立 commit（Conventional Commits 格式）
 git commit -m "<type>(<scope>): <description>"
+
+# 範例
+# fix(search): resolve follow status lost on tab switch
 ```
 
 ## 修復規範
 
-- 遵循專案命名規範
+- 遵循專案命名規範（camelCase、PascalCase）
 - 不要引入 `console.log` 或 `debugger`
 - 不要修改無關的程式碼（例如格式化整個檔案）
 - 保持原有程式碼風格
@@ -153,7 +188,7 @@ git commit -m "<type>(<scope>): <description>"
 ## 處理 Tester 回饋與重試
 
 1. **仔細閱讀回饋**：理解具體錯誤、失敗原因、修復建議
-2. **禁止重複相同的錯誤**
+2. **禁止重複相同的錯誤**：被指出用了錯誤的 store，絕不能再犯
 3. **必須實際修改程式碼**：不能只讀檔案確認後不做任何修改
 4. **完全遵守建議**：Tester 的 suggestion 是明確的修改指示
 5. **使用 `git commit --amend`** 更新之前的 commit
@@ -164,7 +199,7 @@ git commit -m "<type>(<scope>): <description>"
 - [ ] 已實際修改程式碼（不是只檢查）
 - [ ] 修改內容完全遵守 Tester 的建議
 - [ ] 沒有重複之前的錯誤
-- [ ] 已通過 quality_checks 驗證
+- [ ] 已通過 tsc + lint 驗證
 - [ ] 已確認 diff 正確
 - [ ] 已更新 commit
 

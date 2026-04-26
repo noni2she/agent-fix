@@ -53,16 +53,16 @@ Issue 可能為兩種格式：
 
 **所有 issue 類型（互動類、樣式類、邏輯類）一律先走瀏覽器重現。** 邏輯類雖然根因在程式碼，但通常會在瀏覽器顯示為 console error / network 4xx-5xx / UI 異常，瀏覽器仍是最直接的觀察現場。
 
-使用可用的瀏覽器 MCP 工具，依照 `reproduction_steps` 逐步操作：
+使用 chrome-devtools MCP 工具，依照 `reproduction_steps` 逐步操作：
 
-1. 確認 dev server 運行中（參考 Project Context 的啟動命令）
-2. `navigate_page` 先導回 **專案首頁**，確保每個 issue 從乾淨狀態開始
+1. 確認 dev server 運行中：`curl -s http://localhost:<port> > /dev/null || echo "Dev server not running"`
+2. `navigate_page` 先導回 **專案首頁**（`http://localhost:<port>/`），確保每個 issue 從同一個乾淨狀態開始
 3. 依照 issue 的進入點，`navigate_page` 打開問題頁面
 4. 依照 `reproduction_steps` 逐步操作（`click` / `fill` / `press_key` / `navigate_page`）
 5. **確認 `actual` 描述的錯誤行為真的出現** → 這是此步驟的核心目標
 6. `take_screenshot` 截圖記錄失敗狀態，存入 `issues/reports/<issue-id>/reproduction.png`
 7. `list_console_messages` 找 type=error 的 runtime exception
-8. `list_network_requests` 找失敗的 API（4xx / 5xx），必要時用 `get_network_request` 看 payload
+8. `list_network_requests` 找失敗的 API（4xx / 5xx）
 9. 若有必要，`evaluate_script` 驗證 DOM 狀態或 store 值
 
 **重現成功的標準**：操作完 `reproduction_steps` 後，觀察到的行為與 `actual` 描述一致（樣式類則為視覺呈現與 `actual` 一致）。
@@ -142,13 +142,48 @@ Issue 可能為兩種格式：
 
 **通用原則（Project Context 未特別說明時使用）**：
 
-| 條件 | 策略 |
-|------|------|
-| 跨 app 共用套件 | **TACTICAL** |
-| 共用元件，引用 ≥ 3 次，無客製化 prop | **TACTICAL** |
-| 共用元件，引用 ≥ 3 次，有 className/style prop | **DIRECT** |
-| 核心功能（認證、WebSocket、全域狀態） | **TACTICAL** |
-| 其他 | **DIRECT** |
+| 條件 | 策略 | 原因 |
+|------|------|------|
+| 檔案在 `packages/*` | **TACTICAL** | 共用套件不能隨便改 |
+| `src/components/*` 且引用 ≥ 3 次，**無** className/style prop | **TACTICAL** | 共用元件要謹慎 |
+| `src/components/*` 且引用 ≥ 3 次，**有** className/style prop | **DIRECT** | 可透過使用方的 prop 解決 |
+| `src/components/*` 且引用 1-2 次 | **DIRECT** | 局部元件可直接修改 |
+| 檔案路徑包含 `apps/*/src/app/`（Next.js 頁面） | **DIRECT** | 獨立模組可直接修改 |
+| 路徑包含 auth、websocket、store | **TACTICAL** | 核心功能不能亂動 |
+| 其他 | **DIRECT** | 可以直接修改 |
+
+### Step 5: UX 方案評估（條件式觸發）
+
+**觸發條件**（符合任一即執行，否則跳過）：
+
+- bug 涉及 layout / scroll / overflow / modal / dialog / 視覺版面
+- 修復方式可能影響互動回饋（loading、error、disabled state 的呈現方式）
+- 有 ≥ 2 種可行修復路徑，且不同路徑的使用者體驗明顯不同
+- bug 涉及 touch target、form、navigation、animation
+
+**不觸發**：純文字錯誤（i18n/文案）、純邏輯錯誤（條件反了/missing prop）、單一明確修復路徑
+
+**執行步驟：**
+
+1. 列舉 ≥ 2 種候選修復方案（functional 上都能解決 bug）
+2. 依問題類型，用 `search_files` grep `ux-guidelines.csv` 篩選相關規則：
+
+   | 問題類型 | grep Category |
+   |---------|--------------|
+   | layout / scroll / modal / overflow | `Layout` |
+   | 按鈕 / 狀態回饋 / 點擊互動 | `Interaction` |
+   | 手機觸控 / touch target | `Touch` |
+   | 表單 / input / 驗證 | `Forms` |
+   | 無障礙 / 對比度 / ARIA | `Accessibility` |
+   | 動畫 / transition | `Animation` |
+   | 導航 / 路由 | `Navigation` |
+
+3. 對每個候選方案，對照 Do / Don't / Severity 欄位評分
+4. 選擇最符合 UX 規則的方案作為最終 `Suggested Fix`
+5. 在報告中記錄 `Needs Design Phase`、`Candidate Solutions` 與選擇理由
+
+> **Stage 5 注意**：`Needs Design Phase: true` 是為 Orchestrator-Worker 架構預留的 flag。
+> 屆時此步驟將拆出為獨立 Designer subagent，UX 評估邏輯不變，只是執行角色分離。
 
 ## 輸出格式
 
@@ -165,9 +200,13 @@ Issue 可能為兩種格式：
 - **Fix Strategy**: DIRECT | TACTICAL
 - **Fix Strategy Reason**: <策略選擇理由>
 - **Code Snippet**: <問題程式碼片段>
-- **Suggested Fix**: <建議修復方式>
+- **Needs Design Phase**: true | false
+- **Candidate Solutions**: <候選方案列表，僅 Needs Design Phase = true 時填寫>
+  - 方案 A：<描述> — UX 規則對照：<符合/違反哪條規則>
+  - 方案 B：<描述> — UX 規則對照：<符合/違反哪條規則>
+- **Suggested Fix**: <最終選定的修復方式（UX 評估後的結果）>
 - **Confidence Score**: <0-1 的置信度>
-- **Browser Reproduction Issues**: <瀏覽器重現時碰到的阻礙，如未登入導致 401、頁面跳轉錯誤、缺少測試資料等>（重現失敗時必填，即使靜態分析後仍找到根因也保留）
+- **Browser Reproduction Issues**: <瀏覽器操作時碰到的問題，如未登入導致 401、頁面跳轉錯誤等>（重現失敗時填寫，靜態分析也找到根因時仍保留）
 ```
 
 **如果是純邏輯 Bug**，額外提供：

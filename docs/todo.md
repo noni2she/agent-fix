@@ -58,21 +58,40 @@
 
 ```
 Orchestrator（純路由，不做分析判斷）
-├── spawn → Analyzer subagent    輸入：issue 描述（僅此）
-│                                輸出：analyze.md
-├── spawn → Implementer subagent 輸入：analyze.md（僅此）
-│                                輸出：implement.md + code diff
-└── spawn → Tester subagent      輸入：issue 原文 + code diff（不含 analyze / implement）
-                                 輸出：test.md (PASS / FAIL)
+├── spawn → Analyzer subagent     輸入：issue 描述（僅此）
+│                                 輸出：analyze.md（含 needs_design_phase flag）
+├── [條件式] spawn → Designer subagent  僅在 needs_design_phase = true 時觸發
+│                                 輸入：analyze.md + ux-guidelines.csv（依 Category grep）
+│                                 輸出：design.md（候選方案列表 + UX 評估 + 選定方案）
+├── spawn → Implementer subagent  輸入：analyze.md + design.md（若存在，否則僅 analyze.md）
+│                                 輸出：implement.md + code diff
+└── spawn → Tester subagent       輸入：issue 原文 + code diff（不含 analyze / implement）
+                                  輸出：test.md (PASS / FAIL)
 ```
+
+> **目前過渡方案（Stage 5 前）**：UX 評估暫時內嵌於 Analyzer 的 Step 5，
+> 由 analyze 自行完成方案列舉 + CSV grep + 選方案，輸出進 `analyze.md`。
+> Stage 5 重構時，將此邏輯拆出為獨立 Designer subagent，職責不變，架構更清晰。
+
+### Designer subagent 觸發條件
+
+Analyzer 判斷以下任一條件成立時，設 `needs_design_phase: true`：
+
+- 修復方案涉及 layout / scroll / overflow / modal / dialog
+- 不同修復路徑的使用者體驗明顯不同（e.g. nested scroll vs sticky footer）
+- 涉及互動回饋（loading / error / disabled state）且有多種實作選擇
+- 涉及 touch target / form / navigation / animation
+
+**不觸發**：純文字錯誤、純邏輯錯誤（條件反了）、missing prop、單一明確修復路徑
 
 ### 各角色資訊隔離規則
 
 | Subagent | 能看到 | 不能看到 |
 |----------|--------|---------|
 | Analyzer | issue 原文 | 任何修復相關資訊 |
-| Implementer | analyze.md 結論 | Analyzer 的推理過程 |
-| Tester | issue 原文 + diff | analyze.md / implement.md |
+| Designer | analyze.md + ux-guidelines.csv | Analyzer 的推理過程 |
+| Implementer | analyze.md + design.md（若存在） | Analyzer/Designer 的推理過程 |
+| Tester | issue 原文 + diff | analyze.md / implement.md / design.md |
 
 ### 需要做的事
 
