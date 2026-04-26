@@ -10,6 +10,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
 
+# agent 根目錄（相對於此檔案：behavior_validation/ → engine/ → agent-root/）
+_AGENT_ROOT = Path(__file__).parent.parent.parent.resolve()
+
 from pydantic import BaseModel
 
 from .dev_server import DevServerManager
@@ -71,7 +74,7 @@ class BehaviorValidator:
         self.dev_command = dev_command
         self.channel = channel  # "chrome" → 系統 Chrome；None → Playwright Chromium（自動安裝）
         self.base_url = f"http://localhost:{port}"
-        self.screenshot_dir = screenshot_dir or Path("issues/screenshots")
+        self.screenshot_dir = screenshot_dir or (_AGENT_ROOT / "issues" / "screenshots")
 
     async def validate(
         self,

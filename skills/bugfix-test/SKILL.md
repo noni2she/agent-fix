@@ -164,7 +164,8 @@ ELSE:
 
 ## 報告持久化
 
-將報告寫入 `issues/reports/<issue-id>/test.md`。Retry 時加上次數：`test-retry-1.md`、`test-retry-2.md`。
+將報告寫入 task prompt 指定的絕對路徑（`Write your verification report to: <path>`）。
+報告存放在 **agent root**（非被修正的目標專案目錄）。
 
 ## 重要原則
 

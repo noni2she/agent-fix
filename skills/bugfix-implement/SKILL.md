@@ -219,4 +219,5 @@ git commit -m "<type>(<scope>): <description>"
 
 ## 報告持久化
 
-修復完成後，將報告寫入 `issues/reports/<issue-id>/implement.md`（目錄不存在時自動建立）。
+修復完成後，將報告寫入 task prompt 指定的絕對路徑（`Write implementation report to: <path>`）。
+報告存放在 **agent root**（非被修正的目標專案目錄）。

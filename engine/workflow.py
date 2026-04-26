@@ -40,6 +40,10 @@ from .tools import init_tools, set_current_issue_id
 # 安裝後位於 site-packages/engine/workflow.py，skills/ 也會在 site-packages/skills/
 SKILLS_DIR = Path(__file__).parent.parent / "skills"
 
+# agent 本身的根目錄（存放 issues/reports, issues/screenshots）
+# 與被修正的目標專案（project_root）完全分開
+AGENT_ROOT = Path(__file__).parent.parent.resolve()
+
 
 # ==========================================
 # Workflow 初始化（延遲到執行時才載入 config）
@@ -82,7 +86,7 @@ def init_workflow() -> tuple[ProjectConfig, ProjectSpec, Path]:
 # Project Context 生成（從 config.yaml 動態生成）
 # ==========================================
 
-def load_project_context(config: ProjectConfig, project_root: Path) -> str:
+def load_project_context(config: ProjectConfig, project_root: Path, agent_root: Path = AGENT_ROOT) -> str:
     """
     從 ProjectConfig 動態生成專案 context，注入每個 phase prompt 開頭。
 
@@ -169,7 +173,10 @@ Rules:
 ## Project Context
 
 **Project**: {cfg.project_name} ({cfg.framework})
-**Root**: {project_root}
+**Target project root** (read/modify source code here): {project_root}
+**Agent root** (write reports & screenshots here): {agent_root}
+- Reports: `{agent_root}/issues/reports/<issue-id>/`
+- Screenshots: `{agent_root}/issues/screenshots/<issue-id>/`
 
 ### Commands
 
@@ -263,8 +270,8 @@ async def _execute_workflow(
 
     mcp_manager：可從外部傳入（batch 模式共用），若為 None 則自行建立與關閉。
     """
-    # issues/ 報告目錄
-    report_dir = Path("issues/reports")
+    # issues/ 報告目錄：固定放在 agent root（不是被修正的目標專案）
+    report_dir = AGENT_ROOT / "issues" / "reports"
     report_dir.mkdir(parents=True, exist_ok=True)
 
     # 透過 issue source adapter 取得 issue 資料
@@ -327,7 +334,9 @@ Task: Analyze the following issue.
 Issue report:
 {issue_json}
 
-Project root: {project_root}
+Target project root (source code): {project_root}
+Write analysis report to: {report_dir / issue_id / "analyze.md"}
+Write screenshots to: {AGENT_ROOT / "issues" / "screenshots" / issue_id}/
 """
     await run_in_session(main_session, "analyze", analyze_msg, max_tool_calls=50)
 
@@ -363,9 +372,10 @@ You've completed the analysis phase above. The code investigation is in this ses
 ---
 
 Task: Implement the fix for issue {issue_id}.
-Project root: {project_root}
+Target project root (source code): {project_root}
 
-Read issues/reports/{issue_id}/analyze.md for the fix strategy and root cause.
+Read analysis report from: {report_dir / issue_id / "analyze.md"}
+Write implementation report to: {report_dir / issue_id / "implement.md"}
 
 Project Context (commands & paths):
 {project_context}"""
@@ -401,8 +411,8 @@ The engineer has made additional fixes. Re-verify everything.
 """
 
         report_path = (
-            f"issues/reports/{issue_id}/test.md" if retry == 0
-            else f"issues/reports/{issue_id}/test-retry-{retry}.md"
+            report_dir / issue_id / "test.md" if retry == 0
+            else report_dir / issue_id / f"test-retry-{retry}.md"
         )
 
         test_msg = f"""{project_context}{test_body}
@@ -410,11 +420,11 @@ The engineer has made additional fixes. Re-verify everything.
 ---
 
 Task: Verify the fix for issue {issue_id}.
-Project root: {project_root}
+Target project root (source code): {project_root}
 
 Context reports to read:
-- Analysis: issues/reports/{issue_id}/analyze.md
-- Implementation: issues/reports/{issue_id}/implement.md
+- Analysis: {report_dir / issue_id / "analyze.md"}
+- Implementation: {report_dir / issue_id / "implement.md"}
 
 Write your verification report to: {report_path}
 """
@@ -425,7 +435,7 @@ Write your verification report to: {report_path}
 
         if verdict == "PASS":
             print(f"\n  ✅ Fix complete! All checks passed.")
-            print(f"     Reports: issues/reports/{issue_id}/")
+            print(f"     Reports: {report_dir / issue_id}/")
             return
 
         if retry < max_retries:
@@ -443,11 +453,11 @@ The previous implementation did not pass verification. Here is the test failure 
 ---
 
 Task: Fix the identified issues for {issue_id}.
-Project root: {project_root}
+Target project root (source code): {project_root}
 
 Context:
-- Analysis: issues/reports/{issue_id}/analyze.md
-- Previous implementation: issues/reports/{issue_id}/implement.md
+- Analysis: {report_dir / issue_id / "analyze.md"}
+- Previous implementation: {report_dir / issue_id / "implement.md"}
 """
             await run_in_session(
                 main_session, f"implement-retry-{retry + 1}", retry_msg, max_tool_calls=30
@@ -498,7 +508,7 @@ async def run_batch_workflow(issue_ids: list[str]):
             try:
                 await _execute_workflow(issue_id, config, project_root, mcp_manager=shared_mcp)
                 # 讀取 analyze status 判斷是否真的跑完修復，或是中途中止
-                report_dir = Path("issues/reports")
+                report_dir = AGENT_ROOT / "issues" / "reports"
                 status = read_analyze_status(issue_id, report_dir)
                 if status in ("already_fixed", "need_more_info", "missing"):
                     skipped.append(issue_id)

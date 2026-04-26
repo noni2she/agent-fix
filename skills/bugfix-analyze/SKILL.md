@@ -60,7 +60,7 @@ Issue 可能為兩種格式：
 3. 依照 issue 的進入點，`navigate_page` 打開問題頁面
 4. 依照 `reproduction_steps` 逐步操作（`click` / `fill` / `press_key` / `navigate_page`）
 5. **確認 `actual` 描述的錯誤行為真的出現** → 這是此步驟的核心目標
-6. `take_screenshot` 截圖記錄失敗狀態，存入 `issues/screenshots/<issue-id>/reproduction.png`（**只截這一張，不要在其他步驟截圖**）
+6. `take_screenshot` 截圖記錄失敗狀態，存入 task prompt 指定的截圖目錄下 `reproduction.png`（**只截這一張，不要在其他步驟截圖**）
 7. `list_console_messages` 找 type=error 的 runtime exception
 8. `list_network_requests` 找失敗的 API（4xx / 5xx）
 9. 若有必要，`evaluate_script` 驗證 DOM 狀態或 store 值
@@ -71,7 +71,7 @@ Issue 可能為兩種格式：
 
 當瀏覽器無法重現時——常見原因：未登入 / 權限不足 / 缺少測試資料 / 環境異常 / 頁面跳轉錯誤——執行以下記錄後退回靜態觀察：
 
-1. `take_screenshot` 截圖當前失敗狀態，存入 `issues/screenshots/<issue-id>/reproduction-failed.png`（**只截這一張**）
+1. `take_screenshot` 截圖當前失敗狀態，存入 task prompt 指定的截圖目錄下 `reproduction-failed.png`（**只截這一張**）
 2. `list_console_messages` 記錄所有 type=error 的訊息
 3. `list_network_requests` 記錄失敗的 API（4xx / 5xx）
 4. 將觀察到的阻礙（如「未登入導致 401」、「跳轉到 /login」、「缺少 mock 資料」）記入 `Browser Reproduction Issues`
@@ -224,7 +224,8 @@ Issue 可能為兩種格式：
 
 ## 報告持久化
 
-完成分析後，將報告寫入 `issues/reports/<issue-id>/analyze.md`（目錄不存在時自動建立）。
+完成分析後，將報告寫入 task prompt 指定的絕對路徑（`Write analysis report to: <path>`）。
+報告與截圖都存放在 **agent root**（非被修正的目標專案目錄）。
 
 ## 注意事項
 
