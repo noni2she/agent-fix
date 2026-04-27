@@ -149,16 +149,19 @@ behavior_validation:
 
   # ── 登入認證（選填）─────────────────────────────────────────────────
   # 若測試場景需要登入，填寫以下設定。
-  # 系統會自動登入一次並快取 session（storageState），
-  # 後續測試直接 restore，不重複走登入流程。
-  # 帳密請設定在 .env（不要寫在這裡）：
+  # 系統會自動登入一次並快取 session，後續測試直接 restore。
+  #
+  # 最簡設定：只需填 login_url，selector 由系統自動偵測。
+  # 帳密設定在 .env（不要寫在這裡）：
   #   TEST_USERNAME=your-test-account@example.com
   #   TEST_PASSWORD=your-test-password
   #
   # auth:
-  #   login_url: /login                          # 登入頁面路徑
-  #   username_selector: "input[name=email]"     # 帳號 input 的 CSS selector
-  #   password_selector: "input[name=password]"  # 密碼 input 的 CSS selector
-  #   submit_selector: "button[type=submit]"     # 送出按鈕的 CSS selector
-  #   success_indicator: "#dashboard"            # 登入成功後才出現的元素 selector
-  #   state_ttl_hours: 24                        # session 快取有效時數（預設 24h）
+  #   login_url: /login        # ← 只有這行是必填的
+  #   state_ttl_hours: 24      # session 快取有效時數（預設 24h）
+  #
+  # 若自動偵測失敗，可手動指定 selector（進階選項）：
+  #   username_selector: "input[name=email]"
+  #   password_selector: "input[type=password]"
+  #   submit_selector: "button[type=submit]"
+  #   success_indicator: "#dashboard"   # 不填則以 URL 變化判斷

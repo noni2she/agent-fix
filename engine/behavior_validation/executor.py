@@ -80,13 +80,84 @@ class BehaviorValidator:
         self.base_url = f"http://localhost:{port}"
         self.screenshot_dir = screenshot_dir or (_AGENT_ROOT / "issues" / "screenshots")
 
+    @staticmethod
+    async def _detect_login_form(page) -> Optional[dict]:
+        """
+        自動偵測登入表單的 selector。
+
+        偵測邏輯（由特徵明確到模糊）：
+          password → input[type=password]（HTML 標準，幾乎 100% 通用）
+          username → 同 form 內最近的 input[type=email]，
+                     或 password 前面的 input[type=text]
+          submit   → 同 form 的 button[type=submit]，
+                     或 input[type=submit]，
+                     或最後一個 button
+
+        Returns:
+            {'username': sel, 'password': sel, 'submit': sel} 或 None（偵測失敗）
+        """
+        detected = await page.evaluate("""() => {
+            const pwInput = document.querySelector('input[type=password]');
+            if (!pwInput) return null;
+
+            // 找 form 容器（往上找 <form>，找不到就用 document.body）
+            const form = pwInput.closest('form') || document.body;
+
+            // username：email input 優先，否則找 password 前面的 text input
+            let usernameEl =
+                form.querySelector('input[type=email]') ||
+                form.querySelector('input[name*=email i]') ||
+                form.querySelector('input[name*=user i]') ||
+                form.querySelector('input[name*=account i]') ||
+                form.querySelector('input[name*=login i]') ||
+                form.querySelector('input[name*=phone i]');
+
+            if (!usernameEl) {
+                // 找所有 text inputs，取 password 前面那一個
+                const inputs = [...form.querySelectorAll('input[type=text], input:not([type])')];
+                const pwIdx = [...form.querySelectorAll('input')].indexOf(pwInput);
+                usernameEl = inputs.filter(el => {
+                    const idx = [...form.querySelectorAll('input')].indexOf(el);
+                    return idx < pwIdx;
+                }).pop() || null;
+            }
+
+            // submit：type=submit 優先，否則取 form 最後一個 button
+            const submitEl =
+                form.querySelector('button[type=submit]') ||
+                form.querySelector('input[type=submit]') ||
+                [...form.querySelectorAll('button')].pop();
+
+            if (!usernameEl || !submitEl) return null;
+
+            // 產生最穩定的 selector（有 id 用 id；有 name 用 name；fallback type）
+            const toSel = el => {
+                if (el.id)   return '#' + CSS.escape(el.id);
+                if (el.name) return `[name="${el.name}"]`;
+                if (el.type) return `input[type="${el.type}"]`;
+                return el.tagName.toLowerCase();
+            };
+
+            return {
+                username: toSel(usernameEl),
+                password: toSel(pwInput),
+                submit:   submitEl.id
+                            ? '#' + CSS.escape(submitEl.id)
+                            : submitEl.type === 'submit'
+                              ? 'button[type=submit]'
+                              : submitEl.tagName.toLowerCase(),
+            };
+        }""")
+        return detected
+
     async def _ensure_authenticated(self) -> Optional[Path]:
         """
         確保 storageState 存在且未過期，回傳可用的 state 檔案路徑。
 
         流程：
-          1. 若 .playwright-auth.json 存在且未超過 TTL → 直接重用
-          2. 否則 → 讀取 env 帳密 → 執行 login flow → 儲存 state → 回傳路徑
+          1. 若 storageState 存在且未超過 TTL → 直接重用
+          2. 否則 → 讀取 env 帳密 → 導向 login_url → 自動偵測或使用指定 selector
+             → 填入帳密送出 → 確認成功 → 儲存 state
 
         Returns:
             storageState 檔案的 Path，若無 auth_config 或帳密缺失則回傳 None
@@ -130,13 +201,38 @@ class BehaviorValidator:
                     wait_until="networkidle",
                     timeout=15000,
                 )
-                await runner.page.fill(auth.username_selector, username)
-                await runner.page.fill(auth.password_selector, password)
-                await runner.page.click(auth.submit_selector)
 
-                # 等待登入成功標誌出現
-                await runner.page.wait_for_selector(auth.success_indicator, timeout=15000)
-                print(f"  ✅ 登入成功")
+                # selector：優先使用 config 指定值，否則自動偵測
+                if auth.username_selector and auth.password_selector and auth.submit_selector:
+                    u_sel = auth.username_selector
+                    p_sel = auth.password_selector
+                    s_sel = auth.submit_selector
+                    print(f"  🔐 使用 config 指定的 selector")
+                else:
+                    print(f"  🔍 自動偵測登入表單 selector...")
+                    detected = await self._detect_login_form(runner.page)
+                    if not detected:
+                        print(f"  ❌ 無法自動偵測登入表單（建議手動在 config 指定 selector）")
+                        return None
+                    u_sel = auth.username_selector or detected["username"]
+                    p_sel = auth.password_selector or detected["password"]
+                    s_sel = auth.submit_selector or detected["submit"]
+                    print(f"  ✅ 偵測到表單：username={u_sel}, password={p_sel}, submit={s_sel}")
+
+                url_before = runner.page.url
+                await runner.page.fill(u_sel, username)
+                await runner.page.fill(p_sel, password)
+                await runner.page.click(s_sel)
+
+                # 確認登入成功：優先用指定 selector，否則等待 URL 變化
+                if auth.success_indicator:
+                    await runner.page.wait_for_selector(auth.success_indicator, timeout=15000)
+                else:
+                    await runner.page.wait_for_function(
+                        f"() => window.location.href !== {repr(url_before)}",
+                        timeout=15000,
+                    )
+                print(f"  ✅ 登入成功（→ {runner.page.url}）")
 
                 # 儲存 storageState
                 await runner.save_storage_state(state_path)

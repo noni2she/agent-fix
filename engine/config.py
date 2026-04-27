@@ -122,23 +122,36 @@ class AuthConfig(BaseModel):
     只需登入一次，browser state（cookies/localStorage）存成檔案，
     後續所有場景直接 restore，不重複走登入流程。
 
+    最簡設定：只需填 login_url，其餘 selector 由系統自動偵測。
     帳密透過環境變數提供（不寫在 YAML）。
     """
     login_url: str = Field(
         description="登入頁面路徑，如 /login 或 /auth/signin"
     )
-    username_selector: str = Field(
-        description="帳號 input 的 CSS selector，如 'input[name=email]'"
+
+    # ── selector（全部選填，不填則自動偵測）──────────────────────────
+    # 自動偵測規則：
+    #   username → input[type=email] 或 password 前面的 input[type=text]
+    #   password → input[type=password]（HTML 標準，幾乎 100% 通用）
+    #   submit   → 同一 <form> 的 button[type=submit]
+    #   success  → 登入後 URL 發生變化視為成功（無需 selector）
+    username_selector: Optional[str] = Field(
+        default=None,
+        description="帳號 input 的 CSS selector（選填，不填則自動偵測）"
     )
-    password_selector: str = Field(
-        description="密碼 input 的 CSS selector，如 'input[name=password]'"
+    password_selector: Optional[str] = Field(
+        default=None,
+        description="密碼 input 的 CSS selector（選填，不填則自動偵測 input[type=password]）"
     )
-    submit_selector: str = Field(
-        description="送出按鈕的 CSS selector，如 'button[type=submit]'"
+    submit_selector: Optional[str] = Field(
+        default=None,
+        description="送出按鈕的 CSS selector（選填，不填則自動偵測 button[type=submit]）"
     )
-    success_indicator: str = Field(
-        description="登入成功後才會出現的元素 selector（用來確認登入完成），如 '#dashboard' 或 'nav[aria-label=main]'"
+    success_indicator: Optional[str] = Field(
+        default=None,
+        description="登入成功後才會出現的元素 selector（選填，不填則以 URL 變化判斷）"
     )
+
     storage_state_path: str = Field(
         default=".playwright-auth.json",
         description="storageState 快取路徑（相對 agent root）。此檔含有 session token，已加入 .gitignore。"

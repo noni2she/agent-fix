@@ -180,17 +180,13 @@ behavior_validation:
   port: <偵測到的 port，預設 3000>
   headless: true
   channel: null
-  # ── 登入認證（選填，需手動填寫 selector）──────────────────────────
-  # 若測試場景需要登入，取消以下註解並填寫對應 selector。
+  # ── 登入認證（選填）──────────────────────────────────────────────
+  # 若測試場景需要登入，只需取消以下兩行的註解。
+  # selector 由系統自動偵測，不需要手動填寫。
   # 帳密設定在 .env：TEST_USERNAME / TEST_PASSWORD
   #
   # auth:
-  #   login_url: /login
-  #   username_selector: "input[name=email]"
-  #   password_selector: "input[name=password]"
-  #   submit_selector: "button[type=submit]"
-  #   success_indicator: "#dashboard"
-  #   state_ttl_hours: 24
+  #   login_url: /login   # ← 只需填寫登入頁面路徑
 
 dev_server:
   port: <偵測到的 port，預設 3000>
@@ -229,6 +225,6 @@ mcp_servers:
 - **建議下一步**:
   1. 檢查並調整 `quality_checks.typescript.command` 與 `eslint.command`
   2. 確認 `behavior_validation.port` 與 `dev_server.command`
-  3. 若測試場景需要登入：填寫 `behavior_validation.auth` 區塊的 selector，並在 `.env` 設定 `TEST_USERNAME` / `TEST_PASSWORD`
+  3. 若測試場景需要登入：在 `behavior_validation.auth` 填入 `login_url`，並在 `.env` 設定 `TEST_USERNAME` / `TEST_PASSWORD`（selector 自動偵測，無需手動填寫）
   4. 執行驗證：`agent-fix validate <output_path>`
 ```
