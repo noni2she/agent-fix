@@ -127,40 +127,38 @@ issue_source:
 # ============================================
 skills:
   directories:
-    - "/path/to/agent-fix/skills"            # core workflow skills（必填，改為實際安裝路徑）
-    - "/path/to/agent-fix/skills/references" # vendor skills：vercel-react-best-practices, web-design-guidelines
-    # 可加入專案自有的 skills 目錄，例如：
-    # - "../your-project/.github/skills"
+    - "../your-project/.github/skills"
+    # 可加入多個 skills 目錄
+  coding_standards_skill: null  # 可選：填入對應的 skill 名稱（如 vercel-react-best-practices）
 
 # ============================================
 # 開發伺服器配置（用於行為驗證）
 # ============================================
 dev_server:
   port: 3001
-  command: null  # 如果需要自訂啟動命令，可在此指定（如 "yarn workspace web dev"）
+  command: null # 如果需要自訂啟動命令，可在此指定
 
 # ============================================
-# 行為驗證配置（Playwright）
+# Playwright 行為驗證配置
 # ============================================
 behavior_validation:
-  enabled: false       # 設為 true 以啟用 Phase 4 瀏覽器驗證
-  port: 3001           # Dev server port（與 dev_server.port 一致）
-  workspace: null      # Monorepo workspace 名稱（無自訂 dev_server.command 時使用）
-  headless: true       # True = 無頭模式（agent/CI 環境）；False = 顯示瀏覽器視窗（本地 debug）
-  channel: null        # null = 使用 Playwright 自帶 Chromium（首次執行自動安裝）
-                       # "chrome"  = 使用系統 Google Chrome（已裝則免額外安裝）
-                       # "msedge"  = 使用系統 Microsoft Edge
+  enabled: false
+  port: 3001
+  headless: true
+  channel: null  # null → Playwright Chromium（自動安裝）；"chrome" → 使用系統 Chrome
 
-# ============================================
-# MCP Server 配置（bugfix-analyze 階段使用）
-# ============================================
-# 啟用後，LLM agent 在 analyze 階段可呼叫 MCP tools 做瀏覽器 debug
-# （navigate_page / list_console_messages / list_network_requests 等）
-# 前提：dev server 需已啟動，且執行環境安裝有 Node.js + npx
-mcp_servers: {}
-# 範例（取消註解以啟用）：
-# mcp_servers:
-#   chrome-devtools:
-#     command: npx
-#     args: ["-y", "chrome-devtools-mcp@latest"]
-#     enabled: true
+  # ── 登入認證（選填）─────────────────────────────────────────────────
+  # 若測試場景需要登入，填寫以下設定。
+  # 系統會自動登入一次並快取 session（storageState），
+  # 後續測試直接 restore，不重複走登入流程。
+  # 帳密請設定在 .env（不要寫在這裡）：
+  #   TEST_USERNAME=your-test-account@example.com
+  #   TEST_PASSWORD=your-test-password
+  #
+  # auth:
+  #   login_url: /login                          # 登入頁面路徑
+  #   username_selector: "input[name=email]"     # 帳號 input 的 CSS selector
+  #   password_selector: "input[name=password]"  # 密碼 input 的 CSS selector
+  #   submit_selector: "button[type=submit]"     # 送出按鈕的 CSS selector
+  #   success_indicator: "#dashboard"            # 登入成功後才出現的元素 selector
+  #   state_ttl_hours: 24                        # session 快取有效時數（預設 24h）
