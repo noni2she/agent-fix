@@ -1,7 +1,31 @@
+# Python-generated files
 __pycache__/
-*.pyc
-.env
-.venv/
+*.py[oc]
+build/
 dist/
-*.egg-info/
-.pytest_cache/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# IDE files
+.vscode/
+
+# Report files
+issues/report/
+
+# AI tooling files
+.github/
+
+# Environment variables
+.env
+
+# Playwright auth state（含 session token，絕對不能進 repo）
+.playwright-auth.json
+*.playwright-auth.json
+
+# Issue source files
+issues/sources/
+issues/screenshots/
+issues/reports/

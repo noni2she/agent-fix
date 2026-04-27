@@ -116,6 +116,47 @@ class IssueSourceConfig(BaseModel):
     )
 
 
+class AuthConfig(BaseModel):
+    """Playwright 登入認證配置（storageState 方案）
+
+    只需登入一次，browser state（cookies/localStorage）存成檔案，
+    後續所有場景直接 restore，不重複走登入流程。
+
+    帳密透過環境變數提供（不寫在 YAML）。
+    """
+    login_url: str = Field(
+        description="登入頁面路徑，如 /login 或 /auth/signin"
+    )
+    username_selector: str = Field(
+        description="帳號 input 的 CSS selector，如 'input[name=email]'"
+    )
+    password_selector: str = Field(
+        description="密碼 input 的 CSS selector，如 'input[name=password]'"
+    )
+    submit_selector: str = Field(
+        description="送出按鈕的 CSS selector，如 'button[type=submit]'"
+    )
+    success_indicator: str = Field(
+        description="登入成功後才會出現的元素 selector（用來確認登入完成），如 '#dashboard' 或 'nav[aria-label=main]'"
+    )
+    storage_state_path: str = Field(
+        default=".playwright-auth.json",
+        description="storageState 快取路徑（相對 agent root）。此檔含有 session token，已加入 .gitignore。"
+    )
+    state_ttl_hours: int = Field(
+        default=24,
+        description="storageState 有效時數，超過後自動重新登入。預設 24h。"
+    )
+    username_env: str = Field(
+        default="TEST_USERNAME",
+        description="存放帳號的環境變數名稱（從 .env 讀取）"
+    )
+    password_env: str = Field(
+        default="TEST_PASSWORD",
+        description="存放密碼的環境變數名稱（從 .env 讀取）"
+    )
+
+
 class BehaviorValidationConfig(BaseModel):
     """行為驗證配置（Playwright）"""
     enabled: bool = Field(
@@ -142,6 +183,10 @@ class BehaviorValidationConfig(BaseModel):
             "  'chrome'    → 使用系統已安裝的 Google Chrome（不需額外安裝）\n"
             "  'msedge'    → 使用系統 Microsoft Edge"
         )
+    )
+    auth: Optional[AuthConfig] = Field(
+        default=None,
+        description="登入認證設定（選填）。設定後 Playwright 會自動處理登入並快取 session，無需在測試場景中手動走登入流程。"
     )
 
 

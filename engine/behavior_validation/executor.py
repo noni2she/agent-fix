@@ -6,6 +6,7 @@
 - 管理 dev server 生命週期、執行 Playwright 測試
 - 回傳 ValidationReport
 """
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -55,6 +56,7 @@ class BehaviorValidator:
         headless: Playwright 是否無頭模式（agent/CI 環境設 True）
         dev_command: 完整 dev server 啟動命令（list 形式，優先於 workspace）
         screenshot_dir: 截圖儲存目錄（預設 issues/screenshots/）
+        auth_config: 登入認證設定（選填）
     """
 
     def __init__(
@@ -66,6 +68,7 @@ class BehaviorValidator:
         dev_command: Optional[list[str]] = None,
         screenshot_dir: Optional[Path] = None,
         channel: Optional[str] = None,
+        auth_config=None,  # Optional[AuthConfig]，避免 circular import 不強型別
     ):
         self.project_root = project_root
         self.port = port
@@ -73,8 +76,80 @@ class BehaviorValidator:
         self.headless = headless
         self.dev_command = dev_command
         self.channel = channel  # "chrome" → 系統 Chrome；None → Playwright Chromium（自動安裝）
+        self.auth_config = auth_config
         self.base_url = f"http://localhost:{port}"
         self.screenshot_dir = screenshot_dir or (_AGENT_ROOT / "issues" / "screenshots")
+
+    async def _ensure_authenticated(self) -> Optional[Path]:
+        """
+        確保 storageState 存在且未過期，回傳可用的 state 檔案路徑。
+
+        流程：
+          1. 若 .playwright-auth.json 存在且未超過 TTL → 直接重用
+          2. 否則 → 讀取 env 帳密 → 執行 login flow → 儲存 state → 回傳路徑
+
+        Returns:
+            storageState 檔案的 Path，若無 auth_config 或帳密缺失則回傳 None
+        """
+        auth = self.auth_config
+        if not auth:
+            return None
+
+        state_path = _AGENT_ROOT / auth.storage_state_path
+
+        # 檢查快取是否有效
+        if state_path.exists():
+            age_hours = (datetime.now().timestamp() - state_path.stat().st_mtime) / 3600
+            if age_hours < auth.state_ttl_hours:
+                print(f"  🔐 使用已快取的 auth state（{age_hours:.1f}h 前建立，TTL={auth.state_ttl_hours}h）")
+                return state_path
+            print(f"  🔐 Auth state 已過期（{age_hours:.1f}h > TTL {auth.state_ttl_hours}h），重新登入")
+        else:
+            print(f"  🔐 未找到 auth state，執行初次登入流程")
+
+        # 從環境變數讀取帳密
+        username = os.getenv(auth.username_env)
+        password = os.getenv(auth.password_env)
+
+        if not username or not password:
+            print(f"  ⚠️  缺少環境變數 {auth.username_env} / {auth.password_env}，跳過 auth（測試可能因未登入而失敗）")
+            return None
+
+        # 執行 login flow
+        auth_screenshot_dir = self.screenshot_dir / "_auth_setup"
+        async with PlaywrightRunner(
+            base_url=self.base_url,
+            headless=self.headless,
+            screenshot_dir=auth_screenshot_dir,
+            channel=self.channel,
+        ) as runner:
+            try:
+                print(f"  🔐 導向登入頁面：{auth.login_url}")
+                await runner.page.goto(
+                    f"{self.base_url}{auth.login_url}",
+                    wait_until="networkidle",
+                    timeout=15000,
+                )
+                await runner.page.fill(auth.username_selector, username)
+                await runner.page.fill(auth.password_selector, password)
+                await runner.page.click(auth.submit_selector)
+
+                # 等待登入成功標誌出現
+                await runner.page.wait_for_selector(auth.success_indicator, timeout=15000)
+                print(f"  ✅ 登入成功")
+
+                # 儲存 storageState
+                await runner.save_storage_state(state_path)
+                print(f"  💾 Auth state 已儲存：{state_path}")
+                return state_path
+
+            except Exception as e:
+                print(f"  ❌ 登入失敗：{e}（測試將以未登入狀態繼續）")
+                try:
+                    await runner._screenshot("auth-failed")
+                except Exception:
+                    pass
+                return None
 
     async def validate(
         self,
@@ -118,6 +193,9 @@ class BehaviorValidator:
             print("  ❌ Dev server 未就緒，跳過行為驗證")
             return report
 
+        # 處理 auth：取得 storageState（只在 server 就緒後才能走 login flow）
+        storage_state = await self._ensure_authenticated()
+
         # 執行 Playwright 場景
         screenshot_dir = self.screenshot_dir / issue_id
         try:
@@ -126,6 +204,7 @@ class BehaviorValidator:
                 headless=self.headless,
                 screenshot_dir=screenshot_dir,
                 channel=self.channel,
+                storage_state=storage_state,
             ) as runner:
                 result = await self._run_scenario(runner, scenario)
                 report.results.append(result)

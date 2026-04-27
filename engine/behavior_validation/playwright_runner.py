@@ -53,11 +53,13 @@ class PlaywrightRunner:
         headless: bool = True,
         screenshot_dir: Path = None,
         channel: Optional[str] = None,
+        storage_state: Optional[Path] = None,
     ):
         self.base_url = base_url
         self.headless = headless
         self.screenshot_dir = screenshot_dir or Path("./screenshots")
         self.channel = channel  # e.g. "chrome" → 使用系統 Chrome；None → 使用 Playwright Chromium
+        self.storage_state = storage_state  # 已登入的 browser state 檔案路徑
         self.playwright = None
         self.browser = None
         self.page: Page = None
@@ -75,7 +77,13 @@ class PlaywrightRunner:
         if self.channel:
             launch_kwargs["channel"] = self.channel
         self.browser = await self.playwright.chromium.launch(**launch_kwargs)
-        context = await self.browser.new_context(viewport={"width": 1280, "height": 720})
+
+        # 若提供 storageState（已登入 session），直接 restore；否則開全新 context
+        context_kwargs: dict = {"viewport": {"width": 1280, "height": 720}}
+        if self.storage_state and self.storage_state.exists():
+            context_kwargs["storage_state"] = str(self.storage_state)
+
+        context = await self.browser.new_context(**context_kwargs)
         self.page = await context.new_page()
         self.page.set_default_timeout(30000)
 
@@ -163,3 +171,8 @@ class PlaywrightRunner:
         path = self.screenshot_dir / f"{timestamp}_{name}.png"
         await self.page.screenshot(path=str(path))
         return path
+
+    async def save_storage_state(self, path: Path) -> None:
+        """將目前 browser context 的 cookies/localStorage 存成 storageState 檔案"""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        await self.page.context.storage_state(path=str(path))
