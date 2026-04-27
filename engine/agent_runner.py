@@ -133,6 +133,7 @@ async def run_in_session(
     print(f"🤖 [{phase_name.upper()}] 執行中...")
     print(f"{'='*60}")
 
+    # 只顯示 --- 之後的任務段（略過 project context 與 skill body）
     parts = user_message.split("---", 1)
     task_preview = parts[-1].strip() if len(parts) > 1 else user_message.strip()
     if len(task_preview) > 800:
@@ -213,26 +214,42 @@ async def execute_agent_session(
                 if event.content:
                     response_parts.append(event.content)
                     if not in_message_stream:
+                        # Phase 第一段回應：印 header
                         print(f"\n  📝 AI 回應:")
                         print(f"  {'─'*50}")
                         in_message_stream = True
                     elif after_tool_call:
+                        # 工具呼叫後繼續回應：空一行再接
                         print()
                     after_tool_call = False
 
-                    # 格式化：結尾 ':' 換成 '.' 並空一行，讓段落清晰分開
+                    # 格式化：冒號（半形 : 或全形 ：）後插入段落換行
+                    # 兩種場景：
+                    #   1. mid-chunk：「中文句子：下一句」在同一個 chunk → regex 替換
+                    #   2. end-of-chunk：冒號剛好在 chunk 尾端 → endswith 補換行
+                    import re
                     content = event.content
+
+                    # 場景 1：全形 ：前後都是 CJK 字元（AI 步驟說明分隔）
+                    # lookahead + lookbehind 雙重保護，避免誤觸 時間：10:30 / URL / JSON
+                    content = re.sub(
+                        r'(?<=[一-鿿぀-ヿ＀-￯])：(?=[一-鿿぀-ヿ＀-￯])',
+                        '.\n\n',
+                        content,
+                    )
+
+                    # 場景 2：行尾半形或全形冒號（場景 1 已處理全形，此處補半形）
                     stripped = content.rstrip()
-                    if stripped.endswith(":"):
-                        content = stripped[:-1] + "." + content[len(stripped):]
-                        print(content, end="\n\n", flush=True)
-                    else:
-                        print(content, end="", flush=True)
+                    if stripped.endswith((":", "：")):
+                        content = stripped[:-1] + ".\n\n"
+
+                    print(content, end="", flush=True)
 
             elif event.type == "tool_start":
                 tool_call_count += 1
                 tool_name = event.tool_name or "Unknown"
                 tool_usage_stats[tool_name] = tool_usage_stats.get(tool_name, 0) + 1
+                # 工具呼叫前後各空一行，與 AI 回應文字分開
                 print(f"\n\n  🔧 工具呼叫 #{tool_call_count}/{max_tool_calls}: {tool_name}\n")
                 after_tool_call = True
 
@@ -250,7 +267,7 @@ async def execute_agent_session(
 
             elif event.type == "idle":
                 if in_message_stream:
-                    print()
+                    print()  # 確保最後一行有換行
                     in_message_stream = False
                 print(f"  {'─'*50}")
                 print(f"  ✅ Phase 完成，共 {tool_call_count} 次工具呼叫")
