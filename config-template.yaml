@@ -148,20 +148,23 @@ behavior_validation:
   channel: null  # null → Playwright Chromium（自動安裝）；"chrome" → 使用系統 Chrome
 
   # ── 登入認證（選填）─────────────────────────────────────────────────
-  # 若測試場景需要登入，填寫以下設定。
-  # 系統會自動登入一次並快取 session，後續測試直接 restore。
+  # 系統自動登入一次並快取 session（storageState），後續測試直接 restore。
+  # 帳密設定在 .env：TEST_USERNAME / TEST_PASSWORD
   #
-  # 最簡設定：只需填 login_url，selector 由系統自動偵測。
-  # 帳密設定在 .env（不要寫在這裡）：
-  #   TEST_USERNAME=your-test-account@example.com
-  #   TEST_PASSWORD=your-test-password
-  #
+  # ▸ URL-based login（有專屬登入頁）：
   # auth:
-  #   login_url: /login        # ← 只有這行是必填的
-  #   state_ttl_hours: 24      # session 快取有效時數（預設 24h）
+  #   login_url: /login
   #
-  # 若自動偵測失敗，可手動指定 selector（進階選項）：
+  # ▸ Modal-based login（點擊按鈕觸發 modal）：
+  # auth:
+  #   login_url: /                    # 有登入按鈕的頁面（如首頁）
+  #   login_trigger: "#open-login"    # 觸發 modal 的按鈕 selector
+  #
+  # ▸ 進階：selector 自動偵測失敗時手動指定
+  # auth:
+  #   login_url: /login
   #   username_selector: "input[name=email]"
   #   password_selector: "input[type=password]"
   #   submit_selector: "button[type=submit]"
   #   success_indicator: "#dashboard"   # 不填則以 URL 變化判斷
+  #   state_ttl_hours: 24

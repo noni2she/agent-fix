@@ -126,7 +126,19 @@ class AuthConfig(BaseModel):
     帳密透過環境變數提供（不寫在 YAML）。
     """
     login_url: str = Field(
-        description="登入頁面路徑，如 /login 或 /auth/signin"
+        description=(
+            "導向登入流程的起始頁面路徑。\n"
+            "  URL-based login：直接填登入頁，如 /login\n"
+            "  Modal-based login：填有登入按鈕的頁面，如 /（首頁），並搭配 login_trigger"
+        )
+    )
+    login_trigger: Optional[str] = Field(
+        default=None,
+        description=(
+            "（選填）用來觸發登入表單出現的元素 selector。\n"
+            "  Modal login 場景：填觸發 modal 的按鈕，如 '#open-login' 或 'button:has-text(\"登入\")'\n"
+            "  URL-based login 不需要填（導向 login_url 後表單已在頁面上）"
+        )
     )
 
     # ── selector（全部選填，不填則自動偵測）──────────────────────────

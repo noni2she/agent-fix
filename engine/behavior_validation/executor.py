@@ -195,12 +195,21 @@ class BehaviorValidator:
             channel=self.channel,
         ) as runner:
             try:
-                print(f"  🔐 導向登入頁面：{auth.login_url}")
+                print(f"  🔐 導向：{auth.login_url}")
                 await runner.page.goto(
                     f"{self.base_url}{auth.login_url}",
                     wait_until="networkidle",
                     timeout=15000,
                 )
+
+                # Modal-based login：點擊 trigger 讓表單出現
+                if auth.login_trigger:
+                    print(f"  🔐 觸發登入表單：{auth.login_trigger}")
+                    await runner.page.click(auth.login_trigger, timeout=10000)
+                    # 等待 password input 出現（表示 modal/表單已 render）
+                    await runner.page.wait_for_selector(
+                        "input[type=password]", timeout=10000
+                    )
 
                 # selector：優先使用 config 指定值，否則自動偵測
                 if auth.username_selector and auth.password_selector and auth.submit_selector:
