@@ -115,12 +115,39 @@ else
     INSTALL_EXTRAS="$SDK_EXTRA"
 fi
 
-# ── 6. 全域安裝 ──────────────────────────────────
+# ── 6. ffmpeg（影片附件截圖，選配） ─────────────────
+echo ""
+if command -v ffmpeg &> /dev/null; then
+    echo "✅ ffmpeg 已安裝，影片附件截圖功能可用"
+else
+    read -p "是否安裝 ffmpeg 以支援影片附件截圖 (y/n)（預設 n）: " -n 1 -r FFMPEG_REPLY; echo
+    if [[ $FFMPEG_REPLY =~ ^[Yy]$ ]]; then
+        if command -v brew &> /dev/null; then
+            echo "📥 安裝 ffmpeg..."
+            brew install ffmpeg
+        elif command -v apt-get &> /dev/null; then
+            echo "📥 安裝 ffmpeg（sudo apt-get）..."
+            sudo apt-get install -y ffmpeg
+        elif command -v dnf &> /dev/null; then
+            echo "📥 安裝 ffmpeg（sudo dnf）..."
+            sudo dnf install -y ffmpeg
+        else
+            echo "⚠️  無法自動安裝 ffmpeg，請手動安裝："
+            echo "   macOS:  brew install ffmpeg"
+            echo "   Ubuntu: sudo apt-get install ffmpeg"
+            echo "   RHEL:   sudo dnf install ffmpeg"
+        fi
+    else
+        echo "⏭️  略過 ffmpeg（可稍後手動安裝：brew install ffmpeg）"
+    fi
+fi
+
+# ── 7. 全域安裝 ──────────────────────────────────
 echo ""
 echo "📥 安裝 agent-fix（SDK: $SDK_NAME）..."
 uv tool install --editable ".[$INSTALL_EXTRAS]" --python python3.13
 
-# ── 7. 驗證安裝 ──────────────────────────────────
+# ── 8. 驗證安裝 ──────────────────────────────────
 echo ""
 if command -v agent-fix &> /dev/null; then
     echo "✅ 安裝完成！已可使用："

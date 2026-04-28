@@ -444,7 +444,7 @@ def command_check_deps(args) -> int:
     
     missing = []
     installed = []
-    
+
     for package, description in required_packages.items():
         spec = importlib.util.find_spec(package)
         if spec is None:
@@ -453,10 +453,18 @@ def command_check_deps(args) -> int:
         else:
             installed.append((package, description))
             print(f"  ✅ {package:20} - {description}")
-    
+
+    # 選配：ffmpeg（影片附件截圖）
+    ffmpeg_ok = shutil.which("ffmpeg") is not None
+    if ffmpeg_ok:
+        print(f"  ✅ {'ffmpeg':20} - 影片附件截圖（選配）")
+    else:
+        print(f"  ⚠️  {'ffmpeg':20} - 影片附件截圖（選配，brew install ffmpeg）")
+
     print()
-    print(f"📊 統計: {len(installed)}/{len(required_packages)} 已安裝")
-    
+    print(f"📊 統計: {len(installed)}/{len(required_packages)} 必要套件已安裝"
+          + ("，ffmpeg ✅" if ffmpeg_ok else "，ffmpeg ⚠️  未安裝（選配）"))
+
     if missing:
         print(f"\n⚠️  缺少 {len(missing)} 個依賴套件")
         
