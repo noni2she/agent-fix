@@ -7,16 +7,18 @@ import json
 from pathlib import Path
 
 from .base import IssueSourceAdapter, IssueNotFoundError, IssueSourceError
+from .attachment_utils import (
+    video_to_frames,
+    DEFAULT_VIDEO_MAX_FRAMES,
+    _IMAGE_EXTENSIONS,
+    _VIDEO_EXTENSIONS,
+    _MIME_MAP,
+)
 
-_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
-_MIME_MAP = {
-    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-    ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
-}
 
-
-def _load_local_images(attachments: list, base_dir: Path) -> list[dict]:
-    """attachments 欄位中的圖片讀成 base64，回傳標準 _images 格式。"""
+def _load_local_attachments(attachments: list, base_dir: Path,
+                             max_video_frames: int = DEFAULT_VIDEO_MAX_FRAMES) -> list[dict]:
+    """attachments 欄位中的圖片/影片讀成 base64，回傳標準 _images 格式。"""
     images = []
     for att in attachments:
         path_str = att.get("path", "")
@@ -25,15 +27,22 @@ def _load_local_images(attachments: list, base_dir: Path) -> list[dict]:
         p = Path(path_str)
         if not p.is_absolute():
             p = base_dir / p
-        if p.suffix.lower() not in _IMAGE_EXTENSIONS or not p.exists():
+        if not p.exists():
             continue
+        ext = p.suffix.lower()
         try:
-            data = base64.b64encode(p.read_bytes()).decode("ascii")
-            images.append({
-                "data": data,
-                "mime_type": _MIME_MAP.get(p.suffix.lower(), "image/png"),
-                "name": p.name,
-            })
+            if ext in _IMAGE_EXTENSIONS:
+                data = base64.b64encode(p.read_bytes()).decode("ascii")
+                images.append({
+                    "data": data,
+                    "mime_type": _MIME_MAP.get(ext, "image/png"),
+                    "name": p.name,
+                })
+            elif ext in _VIDEO_EXTENSIONS:
+                frames = video_to_frames(p.read_bytes(), max_frames=max_video_frames)
+                if frames:
+                    print(f"   🎬 影片 {p.name}：截取 {len(frames)} frames")
+                images.extend(frames)
         except Exception:
             pass
     return images
@@ -49,12 +58,14 @@ class LocalJsonAdapter(IssueSourceAdapter):
     JSON 格式參考 issues/TEMPLATE.json。
     """
 
-    def __init__(self, sources_dir: str = "issues/sources"):
+    def __init__(self, sources_dir: str = "issues/sources",
+                 video_max_frames: int = DEFAULT_VIDEO_MAX_FRAMES):
         """
         Args:
             sources_dir: issue JSON 檔案所在目錄（相對於執行位置）
         """
         self.sources_dir = Path(sources_dir)
+        self.video_max_frames = video_max_frames
 
     def fetch(self, issue_id: str) -> dict:
         """
@@ -90,10 +101,13 @@ class LocalJsonAdapter(IssueSourceAdapter):
         if 'issue_id' not in data:
             data['issue_id'] = issue_id
 
-        # 讀取圖片附件 → 標準 _images 格式
+        # 讀取圖片/影片附件 → 標準 _images 格式
         attachments = data.get("attachments", [])
         if attachments:
-            data["_images"] = _load_local_images(attachments, issue_file.parent)
+            imgs = _load_local_attachments(attachments, issue_file.parent,
+                                           max_video_frames=self.video_max_frames)
+            if imgs:
+                data["_images"] = imgs
 
         return data
 

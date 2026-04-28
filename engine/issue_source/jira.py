@@ -22,6 +22,7 @@ from .base import (
     IssueSourceError,
     IssueSourceConfigError,
 )
+from .attachment_utils import video_to_frames, DEFAULT_VIDEO_MAX_FRAMES
 
 
 class JiraAdapter(IssueSourceAdapter):
@@ -44,6 +45,7 @@ class JiraAdapter(IssueSourceAdapter):
         user_email: Optional[str] = None,
         api_token: Optional[str] = None,
         jql_base: Optional[str] = None,
+        video_max_frames: int = DEFAULT_VIDEO_MAX_FRAMES,
     ):
         """
         Args:
@@ -55,6 +57,7 @@ class JiraAdapter(IssueSourceAdapter):
         self.user_email = user_email or os.getenv("JIRA_USER_EMAIL", "")
         self.api_token = api_token or os.getenv("JIRA_API_TOKEN", "")
         self.jql_base = jql_base or ""
+        self.video_max_frames = video_max_frames
         self._session_cookie: str | None = None  # 快取 JSESSIONID
 
     def validate(self) -> None:
@@ -231,27 +234,42 @@ class JiraAdapter(IssueSourceAdapter):
         except Exception:
             return None
 
-    def _extract_images(self, data: dict) -> list[dict]:
-        """從 Jira raw JSON 的 fields.attachment 下載 image/* 附件。"""
+    def _extract_images(self, data: dict, max_video_frames: int = DEFAULT_VIDEO_MAX_FRAMES) -> list[dict]:
+        """從 Jira raw JSON 的 fields.attachment 下載 image/* 與 video/* 附件。"""
         attachments = data.get("fields", {}).get("attachment", [])
         images = []
         for att in attachments:
             mime = att.get("mimeType", "")
-            if not mime.startswith("image/"):
-                continue
             url = att.get("content", "")
+            name = att.get("filename", "attachment")
             if not url:
                 continue
+
             raw = self._download_image(url)
             if raw is None:
                 continue
-            images.append({
-                "data": b64encode(raw).decode("ascii"),
-                "mime_type": mime,
-                "name": att.get("filename", "attachment.png"),
-            })
+
+            if mime.startswith("image/"):
+                images.append({
+                    "data": b64encode(raw).decode("ascii"),
+                    "mime_type": mime,
+                    "name": name,
+                })
+            elif mime.startswith("video/"):
+                frames = video_to_frames(raw, max_frames=max_video_frames)
+                if frames:
+                    print(f"   🎬 影片 {name}：截取 {len(frames)} frames")
+                images.extend(frames)
+
+        img_count = sum(1 for i in images if not i["name"].startswith("frame_"))
+        vid_count = sum(1 for i in images if i["name"].startswith("frame_"))
         if images:
-            print(f"   📎 下載圖片附件：{len(images)} 張")
+            parts = []
+            if img_count:
+                parts.append(f"{img_count} 張圖片")
+            if vid_count:
+                parts.append(f"{vid_count} 張影片 frames")
+            print(f"   📎 附件處理完成：{'、'.join(parts)}")
         return images
 
     def fetch(self, issue_id: str) -> dict:
@@ -272,8 +290,8 @@ class JiraAdapter(IssueSourceAdapter):
             data = self._get(f"/rest/api/2/issue/{issue_id}")
             data = self._strip_fields(data)
             data["issue_id"] = issue_id
-            # 下載圖片附件 → 標準 _images 格式
-            images = self._extract_images(data)
+            # 下載圖片/影片附件 → 標準 _images 格式
+            images = self._extract_images(data, max_video_frames=self.video_max_frames)
             if images:
                 data["_images"] = images
             return data
