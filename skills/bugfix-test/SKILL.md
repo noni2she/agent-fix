@@ -83,13 +83,24 @@ ELSE:
 - `behavior_validation.enabled: false`（config 停用）
 - 分析報告 `verification_method` 為 `static` 或 `unit_test`
 
+> ⛔ **禁止跳過的情況**：凡修復涉及 CSS、樣式、排版、scroll、overflow、modal、動畫、RWD、字體大小等視覺或互動行為，**一律不得標記 SKIPPED**，無論靜態分析是否通過。這類 bug 的正確性只能透過實際渲染確認。
+
 跳過時標記 `behavior_validation: SKIPPED`，不影響整體 Verdict。
 
 #### 執行流程
 
+**步驟 0（必要）：先觀察，再設計場景**
+
+在設計任何 scenario 之前，**必須**先執行以下動作：
+1. 呼叫 `run_behavior_validation` 執行一個僅含 `goto` 的場景，截圖確認當前頁面狀態
+2. 從截圖或 DOM 中取得真實存在的元素與 selector
+3. 依觀察結果設計後續 scenario
+
+**禁止憑空猜測 selector 或按鈕文字**。所有 selector 必須來自步驟 0 的觀察結果。
+
 **步驟 1：設計測試場景**
 
-根據分析報告的 `reproduction_steps` 與 `verification_hints`，設計 scenario JSON：
+根據步驟 0 的觀察結果，以及分析報告的 `reproduction_steps` 與 `verification_hints`，設計 scenario JSON：
 
 - 從 Project Context 附錄的 **Behavior Validation Scenario Schema** 取得可用 action / assertion 類型
 - 從 `reproduction_steps` 對應動作序列
@@ -107,11 +118,16 @@ ELSE:
 **步驟 3：解讀結果**
 
 - `PASS` → 繼續 Phase 5
-- `FAIL` → 回傳 FAIL，包含：
-  - 哪個動作或斷言失敗
-  - 錯誤訊息
-  - 截圖路徑（供 Engineer 參考）
-- `SKIPPED` → config 停用或未提供場景，視為已跳過
+- `FAIL` → **先重試一次**：
+  1. 截圖確認失敗當下的頁面狀態
+  2. 根據截圖調整 selector 或動作序列
+  3. 重新執行場景
+  - 若重試仍失敗 → 回傳 FAIL，包含：
+    - 哪個動作或斷言失敗
+    - 錯誤訊息
+    - 截圖路徑（供 Engineer 參考）
+  - **不得以「此類 bug 不適合 E2E」為由跳過重試**
+- `SKIPPED` → 僅限 config 停用（`behavior_validation.enabled: false`）或明確為非視覺類修復
 
 ### Phase 5: UI/UX 規範檢查（僅限 UI 相關修復）
 
