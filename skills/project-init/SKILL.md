@@ -6,12 +6,13 @@ argument-hint: <project_path> <output_path> [issue_prefix]
 
 # 專案初始化（Project Init）
 
-你是一位專精於偵測前端專案結構的配置生成專家。你的任務是：
+你是一位專精於偵測專案結構的配置生成專家。你的任務是：
 
 1. **探索**目標專案目錄
-2. **識別**框架、Monorepo 結構、品質工具等資訊
-3. **生成**一份符合 agent-fix `ProjectConfig` schema 的 `config.yaml`
-4. **寫入**到指定的輸出路徑
+2. **識別**框架類型、Monorepo 結構、品質工具等資訊
+3. **判斷**是否為前端專案，若是則偵測登入模組
+4. **生成**一份符合 agent-fix `ProjectConfig` schema 的 `config.yaml`
+5. **寫入**到指定的輸出路徑
 
 ---
 
@@ -129,6 +130,129 @@ read_file(project_path + "/docker-compose.yml")
 
 ---
 
+### Step 7：偵測登入模組（Auth Detection）
+
+**前置判斷：是否為前端專案？**
+
+| framework 值 | 是否偵測 auth |
+|---|---|
+| `nextjs-*`、`react-vite`、`react-cra` | ✅ 繼續偵測 |
+| 偵測不到（純 API、後端服務等）| ❌ `behavior_validation.enabled: false`，跳過本步驟 |
+
+---
+
+**前端專案：執行以下偵測流程**
+
+#### 7-1：搜尋 login / auth 相關檔案
+
+```
+search_files(src_root, pattern="*login*|*auth*|*signin*", case_insensitive=true)
+list_directory(src_root)  # 找 (login)、auth、login 等目錄
+```
+
+**若完全找不到任何 login 相關檔案**：
+→ `behavior_validation.auth` 留空（以註解形式提示手動填寫），在完成報告列出「未偵測到 login 模組」
+
+---
+
+#### 7-2：判斷登入類型
+
+| 偵測特徵 | 登入類型 |
+|---|---|
+| `src/app/login/page.tsx` 或 `pages/login.tsx` 存在 | **URL-based**：`login_url: /login` |
+| `LoginModal`、`AuthModal`、`(login)` route group 存在 | **Modal-based**：需進一步找 trigger |
+| 兩者都有 | 優先 modal-based |
+
+---
+
+#### 7-3：找 login_trigger（Modal-based 專用）
+
+搜尋觸發登入 modal 的元素：
+
+```
+search_code(project_path, keywords=["openLoginModal", "showLogin", "openAuthModal", "handleLoginClick"])
+```
+
+讀取呼叫這些函式的 view-controller 或 layout 檔，找到觸發按鈕的 JSX，取其最穩定的 selector：
+- 有 `id` → `#id`
+- 有唯一 class → `button.class-name`
+- 有文字 → `text=文字內容`
+
+**多步驟判斷**：讀取 modal 內容，若登入 modal 顯示的是「方式選擇畫面」（如手機號 / Email / Google 三個選項），而不是直接顯示表單，則 `login_trigger` 為 list：
+
+```yaml
+login_trigger:
+  - "<觸發 modal 的按鈕 selector>"
+  - "<選擇登入方式的按鈕 selector>"   # 如 text=使用手机号继续
+```
+
+---
+
+#### 7-4：分析登入表單欄位
+
+讀取最終呈現的 form component（如 `PhoneLoginForm.tsx`、`EmailLoginForm.tsx`）：
+
+| 找到的欄位 | selector 規則 |
+|---|---|
+| `<input id="phone">` | `username_selector: "#phone"` |
+| `<input id="email">` | `username_selector: "#email"` |
+| `<input id="password">` | `password_selector: "#password"` |
+| `<button type="submit">` | `submit_selector: "button[type=submit]"` |
+| submit button 無 `type=submit`（如 react-hook-form 的 `type=button`）| 找最穩定的 class 組合，如 `button.w-full.h-12.bg-green-500` |
+
+> **react-hook-form 注意**：`FormButton` 元件常將 `type="button"` 而非 `type="submit"`，需讀取元件實作確認。
+
+---
+
+#### 7-5：偵測 pre_fill_actions 需求
+
+檢查 form 是否有在填帳密前需要額外操作的 UI 元素：
+
+| 偵測特徵 | pre_fill_actions 內容 |
+|---|---|
+| 手機登入含國家/地區選擇器（hidden input + dropdown button）| 加入開啟下拉、搜尋、選擇的 click/fill/wait 動作序列 |
+| email 登入無額外前置操作 | `pre_fill_actions: []`（可省略） |
+| 其他自訂前置步驟 | 依實際 UI 推斷 |
+
+若無法確定 pre_fill_actions，留空並在報告中說明。
+
+---
+
+#### 7-6：產生 behavior_validation.auth 設定
+
+依偵測結果填寫（**以偵測到的真實值填入，不使用範例值**）：
+
+```yaml
+behavior_validation:
+  enabled: true
+  port: <dev server port>
+  headless: true
+  channel: null
+  auth:
+    login_url: <URL-based 填路徑；Modal-based 填觸發頁面路徑，通常為 />
+    login_trigger:                    # 單步驟用字串，多步驟用 list；URL-based 省略
+      - "<step-1 selector>"
+      - "<step-2 selector>"
+    pre_fill_actions:                 # 若無前置操作則省略此欄位
+      - action: click
+        selector: "<selector>"
+      - action: fill
+        selector: "<selector>"
+        value: "<value>"
+      - action: wait
+        selector: "<selector>"
+    username_selector: "<input selector>"
+    password_selector: "<input selector>"
+    submit_selector: "<button selector>"
+    username_env: <PROJECT_KEY>_TEST_USERNAME   # 以專案 key 為前綴，支援多專案共存
+    password_env: <PROJECT_KEY>_TEST_PASSWORD
+```
+
+> `username_env` / `password_env` 命名規則：將 `project_name` 轉大寫 + 底線，如 `morse-webapp` → `MORSE_WEBAPP_TEST_USERNAME`。
+> 帳密由使用者自行設定至 agent-fix 根目錄的 `.env`，**不寫入 config.yaml**。
+
+---
+
 ## 輸出格式
 
 生成以下 YAML，**所有欄位都必須填入真實偵測到的值**，不可留範例預設值：
@@ -176,17 +300,30 @@ skills:
     - <agent-fix 安裝路徑>/skills
 
 behavior_validation:
-  enabled: false
+  enabled: <前端專案為 true；非前端為 false>
   port: <偵測到的 port，預設 3000>
   headless: true
   channel: null
-  # ── 登入認證（選填）──────────────────────────────────────────────
-  # 若測試場景需要登入，只需取消以下兩行的註解。
-  # selector 由系統自動偵測，不需要手動填寫。
-  # 帳密設定在 .env：TEST_USERNAME / TEST_PASSWORD
-  #
+  # ── 以下為前端專案才有的 auth 區塊 ──────────────────────────────
+  # 若 Step 7 成功偵測到 login 模組，填入以下真實值：
+  auth:
+    login_url: <偵測到的值>
+    login_trigger:            # URL-based 省略；multi-step modal 為 list
+      - "<step-1>"
+      - "<step-2>"
+    pre_fill_actions:         # 若無前置操作則省略
+      - action: click
+        selector: "<selector>"
+    username_selector: "<偵測到的值>"
+    password_selector: "<偵測到的值>"
+    submit_selector: "<偵測到的值>"
+    username_env: <PROJECT_KEY>_TEST_USERNAME
+    password_env: <PROJECT_KEY>_TEST_PASSWORD
+  # 若 Step 7 無法偵測，以下為手動填寫提示（保留為註解）：
   # auth:
-  #   login_url: /login   # ← 只需填寫登入頁面路徑
+  #   login_url: /login
+  #   username_env: <PROJECT_KEY>_TEST_USERNAME
+  #   password_env: <PROJECT_KEY>_TEST_PASSWORD
 
 dev_server:
   port: <偵測到的 port，預設 3000>
@@ -208,6 +345,10 @@ mcp_servers:
 3. **若偵測不到某項資訊**：填入最合理的預設值，並在輸出末尾列出「無法偵測的項目」
 4. **不要猜測 issue_prefix**：使用傳入的值
 5. **寫入後確認**：呼叫 `write_file(output_path, yaml_content)` 並確認回傳成功訊息
+6. **非前端專案跳過 auth**：若框架偵測不到（純 API、後端服務等），`behavior_validation.enabled: false`，直接省略 `auth` 區塊
+7. **auth selector 必須填真實值**：不可使用 SKILL.md 中的範例 selector，所有 selector 必須來自實際讀取的原始碼
+8. **`username_env` / `password_env` 命名規則**：`project_name` 轉大寫 + 底線前綴，如 `morse-webapp` → `MORSE_WEBAPP_TEST_USERNAME`；帳密由使用者自行設定至 agent-fix 根目錄的 `.env`，**不寫入 config.yaml**
+9. **auth 偵測失敗時保留註解提示**：若 Step 7 無法確定 selector，以 YAML 註解方式保留空白區塊，並在報告中說明需手動補填
 
 ---
 
@@ -219,12 +360,20 @@ mcp_servers:
 - **專案名稱**: <name>
 - **框架**: <framework>
 - **Monorepo**: <是/否>
+- **Auth 偵測**:
+  - 類型：<URL-based / Modal-based / 未偵測到 / 非前端專案（跳過）>
+  - login_trigger：<偵測到的 selector 或「需手動填寫」>
+  - pre_fill_actions：<有 N 個前置動作 / 無 / 需手動確認>
+  - form selectors：<username / password / submit 是否偵測成功>
 - **輸出路徑**: <output_path>
 - **無法自動偵測的項目**:
   - <若有，列出需要手動填寫的欄位>
 - **建議下一步**:
   1. 檢查並調整 `quality_checks.typescript.command` 與 `eslint.command`
   2. 確認 `behavior_validation.port` 與 `dev_server.command`
-  3. 若測試場景需要登入：在 `behavior_validation.auth` 填入 `login_url`，並在 `.env` 設定 `TEST_USERNAME` / `TEST_PASSWORD`（selector 自動偵測，無需手動填寫）
-  4. 執行驗證：`agent-fix validate <output_path>`
+  3. 在 agent-fix 根目錄的 `.env` 設定測試帳密：
+     `<PROJECT_KEY>_TEST_USERNAME=<帳號>`
+     `<PROJECT_KEY>_TEST_PASSWORD=<密碼>`
+  4. 若 auth 有欄位需手動補填，編輯 `<output_path>` 中的 `behavior_validation.auth`
+  5. 執行驗證：`agent-fix validate <output_path>`
 ```
