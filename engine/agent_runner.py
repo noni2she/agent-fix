@@ -127,6 +127,7 @@ async def run_in_session(
     phase_name: str,
     user_message: str,
     max_tool_calls: int,
+    images: list[dict] | None = None,
 ) -> str:
     """在指定 session 執行一個 skill phase"""
     print(f"\n{'='*60}")
@@ -147,6 +148,7 @@ async def run_in_session(
         context=user_message,
         agent_name=phase_name,
         max_tool_calls=max_tool_calls,
+        images=images,
     )
 
 
@@ -181,6 +183,7 @@ async def execute_agent_session(
     context: str,
     agent_name: str,
     max_tool_calls: int,
+    images: list[dict] | None = None,
 ) -> str:
     """
     在 session 中執行一個 turn，等待 idle 後回傳回應。
@@ -277,7 +280,7 @@ async def execute_agent_session(
             pass
 
     session.on(on_event)
-    asyncio.create_task(session.send(context))
+    asyncio.create_task(session.send(context, images=images))
 
     try:
         await asyncio.wait_for(done.wait(), timeout=300)

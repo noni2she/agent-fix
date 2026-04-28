@@ -63,13 +63,26 @@ class CopilotAdapter(AgentAdapter):
         native_session: Any,
         message: str,
         session: AgentSession,
+        images: list[dict] | None = None,
     ) -> None:
         """
         發送訊息給 Copilot session。
 
         v0.2+ send() 直接接受字串 prompt，不再需要包成 dict。
+        images: [{"data": base64, "mime_type": "image/png", "name": "x.png"}]
         """
-        await native_session.send(message)
+        attachments = None
+        if images:
+            attachments = [
+                {
+                    "type": "blob",
+                    "data": img["data"],
+                    "mimeType": img["mime_type"],
+                    "displayName": img.get("name", "attachment"),
+                }
+                for img in images
+            ]
+        await native_session.send(message, attachments=attachments)
 
     # ==========================================
     # 工具建立

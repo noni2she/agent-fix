@@ -62,9 +62,9 @@ class AgentSession:
         """訂閱標準化事件"""
         self._handlers.append(handler)
 
-    async def send(self, message: str) -> None:
+    async def send(self, message: str, images: Optional[List[dict]] = None) -> None:
         """發送訊息給 agent（觸發 agentic loop）"""
-        await self._adapter.send(self._native, message, self)
+        await self._adapter.send(self._native, message, self, images=images)
 
     def emit(self, event: AgentEvent) -> None:
         """觸發所有已訂閱的 handler"""
@@ -119,6 +119,7 @@ class AgentAdapter(ABC):
         native_session: Any,
         message: str,
         session: AgentSession,
+        images: Optional[List[dict]] = None,
     ) -> None:
         """
         發送訊息並執行 agentic loop。

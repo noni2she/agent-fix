@@ -73,6 +73,7 @@ class ClaudeAdapter(AgentAdapter):
         native_session: ClaudeNativeSession,
         message: str,
         session: AgentSession,
+        images: List[dict] | None = None,
     ) -> None:
         """
         執行完整 agentic loop。
@@ -89,7 +90,22 @@ class ClaudeAdapter(AgentAdapter):
             full_message = f"{message}\n\n---\n{warnings}"
             session.pending_messages.clear()
 
-        native_session.messages.append({"role": "user", "content": full_message})
+        # 組裝 content（純文字 or 文字 + 圖片 content blocks）
+        if images:
+            content: Any = [{"type": "text", "text": full_message}]
+            for img in images:
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": img["mime_type"],
+                        "data": img["data"],
+                    },
+                })
+        else:
+            content = full_message
+
+        native_session.messages.append({"role": "user", "content": content})
 
         await asyncio.get_event_loop().run_in_executor(
             None,

@@ -84,6 +84,7 @@ class OpenAIAdapter(AgentAdapter):
         native_session: OpenAINativeSession,
         message: str,
         session: AgentSession,
+        images: List[dict] | None = None,
     ) -> None:
         """
         執行 OpenAI Agents Runner。
@@ -103,7 +104,18 @@ class OpenAIAdapter(AgentAdapter):
             session.pending_messages.clear()
 
         # 建立本輪 input：把新訊息附加到歷史 input_list
-        current_input = native_session.input_list + [{"role": "user", "content": full_message}]
+        if images:
+            content: Any = [{"type": "input_text", "text": full_message}]
+            for img in images:
+                content.append({
+                    "type": "input_image",
+                    "image_url": f"data:{img['mime_type']};base64,{img['data']}",
+                })
+            user_msg: Any = {"role": "user", "content": content}
+        else:
+            user_msg = {"role": "user", "content": full_message}
+
+        current_input = native_session.input_list + [user_msg]
 
         result = await Runner.run(native_session.agent, input=current_input)
 

@@ -287,6 +287,10 @@ async def _execute_workflow(
     except IssueSourceError as e:
         print(f"\n❌ Failed to fetch issue: {e}")
         sys.exit(1)
+    # 提取圖片附件（analyze 階段使用），不寫入 issue_json
+    issue_images: list[dict] = issue_report.pop("_images", None) or []
+    if issue_images:
+        print(f"  📎 附件圖片：{len(issue_images)} 張，將隨 analyze prompt 傳入")
     issue_json = json.dumps(issue_report, ensure_ascii=False, indent=2)
 
     # 鎖定 issue_id，確保 run_behavior_validation 截圖目錄不受 AI scenario name 影響
@@ -340,7 +344,8 @@ Target project root (source code): {project_root}
 Write analysis report to: {report_dir / issue_id / "analyze.md"}
 Write screenshots to: {AGENT_ROOT / "issues" / "screenshots" / project_key / issue_id}/
 """
-    await run_in_session(main_session, "analyze", analyze_msg, max_tool_calls=50)
+    await run_in_session(main_session, "analyze", analyze_msg, max_tool_calls=50,
+                         images=issue_images or None)
 
     status = read_analyze_status(issue_id, report_dir)
     print(f"\n  📊 Analyze status: {status}")

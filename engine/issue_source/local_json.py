@@ -2,10 +2,41 @@
 Local JSON Adapter — 內建預設 Issue 來源
 從 issues/sources/<issue_id>.json 讀取本地 JSON 檔案
 """
+import base64
 import json
 from pathlib import Path
 
 from .base import IssueSourceAdapter, IssueNotFoundError, IssueSourceError
+
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+_MIME_MAP = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+}
+
+
+def _load_local_images(attachments: list, base_dir: Path) -> list[dict]:
+    """attachments 欄位中的圖片讀成 base64，回傳標準 _images 格式。"""
+    images = []
+    for att in attachments:
+        path_str = att.get("path", "")
+        if not path_str:
+            continue
+        p = Path(path_str)
+        if not p.is_absolute():
+            p = base_dir / p
+        if p.suffix.lower() not in _IMAGE_EXTENSIONS or not p.exists():
+            continue
+        try:
+            data = base64.b64encode(p.read_bytes()).decode("ascii")
+            images.append({
+                "data": data,
+                "mime_type": _MIME_MAP.get(p.suffix.lower(), "image/png"),
+                "name": p.name,
+            })
+        except Exception:
+            pass
+    return images
 
 
 class LocalJsonAdapter(IssueSourceAdapter):
@@ -58,6 +89,11 @@ class LocalJsonAdapter(IssueSourceAdapter):
         # 確保 issue_id 欄位存在
         if 'issue_id' not in data:
             data['issue_id'] = issue_id
+
+        # 讀取圖片附件 → 標準 _images 格式
+        attachments = data.get("attachments", [])
+        if attachments:
+            data["_images"] = _load_local_images(attachments, issue_file.parent)
 
         return data
 
