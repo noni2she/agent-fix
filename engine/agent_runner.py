@@ -178,6 +178,9 @@ def get_warning_points(agent_name: str) -> List[int]:
 # Agent 會話執行（SDK 無關）
 # ==========================================
 
+IDLE_TIMEOUT = 90  # 連續無事件超過此秒數視為卡死
+
+
 async def execute_agent_session(
     session: AgentSession,
     context: str,
@@ -193,6 +196,11 @@ async def execute_agent_session(
     active flag 設計：
     - 共用 session（analyze + implement）會有多個 on_event handler 並存
     - active=False 後，舊 handler 忽略新事件，不干擾下一個 phase
+
+    timeout 設計（idle timeout，類 debounce）：
+    - 每次有事件（message / tool_start / idle）重置 last_activity
+    - 連續 IDLE_TIMEOUT 秒無任何事件才視為卡死並中止
+    - 不限制總執行時間，LLM 健康工作時不會被誤殺
     """
     response_parts = []
     done = asyncio.Event()
@@ -203,11 +211,13 @@ async def execute_agent_session(
     active = True
     in_message_stream = False
     after_tool_call = False
+    last_activity = time.time()
 
     warning_points = get_warning_points(agent_name)
 
     def on_event(event: AgentEvent):
-        nonlocal tool_call_count, force_output_requested, in_message_stream, after_tool_call
+        nonlocal tool_call_count, force_output_requested, in_message_stream, after_tool_call, last_activity
+        last_activity = time.time()
 
         if not active:
             return
@@ -282,23 +292,36 @@ async def execute_agent_session(
     session.on(on_event)
     asyncio.create_task(session.send(context, images=images))
 
-    try:
-        await asyncio.wait_for(done.wait(), timeout=300)
-    except asyncio.TimeoutError:
-        print(f"  ⏱️  警告：執行超時")
+    # Idle timeout（類 debounce）：
+    # 每次有事件 last_activity 被重置，只有連續無事件超過 IDLE_TIMEOUT 秒才中止。
+    while not done.is_set():
+        remaining = IDLE_TIMEOUT - (time.time() - last_activity)
+        if remaining <= 0:
+            print(f"  ⏱️  警告：{IDLE_TIMEOUT}s 無任何事件，視為卡死")
+            break
+        try:
+            await asyncio.wait_for(done.wait(), timeout=remaining)
+        except asyncio.TimeoutError:
+            continue  # 再檢查一次 last_activity（可能剛好有事件進來）
 
     if not "".join(response_parts).strip():
         print(f"  ⚠️  未收到回應，強制要求輸出...")
         done.clear()
+        last_activity = time.time()
         asyncio.create_task(session.send(
             "Please complete your current task. "
             "Stop using tools and provide your output now. "
             "Write any required report files and summarize what you did."
         ))
-        try:
-            await asyncio.wait_for(done.wait(), timeout=60)
-        except asyncio.TimeoutError:
-            print(f"  ⏱️  強制輸出也超時")
+        while not done.is_set():
+            remaining = 60 - (time.time() - last_activity)
+            if remaining <= 0:
+                print(f"  ⏱️  強制輸出也超時")
+                break
+            try:
+                await asyncio.wait_for(done.wait(), timeout=remaining)
+            except asyncio.TimeoutError:
+                continue
 
     final_response = "".join(response_parts)
     active = False  # noqa: F841
