@@ -17,6 +17,7 @@ import json
 import asyncio
 import re
 import sys
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -467,6 +468,12 @@ Context:
             print(f"\n  💀 Max retries ({max_retries}) reached, workflow terminated")
 
 
+def _fmt_duration(seconds: float) -> str:
+    """將秒數格式化為可讀字串，如 '2m 34s' 或 '45s'。"""
+    m, s = divmod(int(seconds), 60)
+    return f"{m}m {s:02d}s" if m else f"{s}s"
+
+
 async def run_batch_workflow(issue_ids: list[str]):
     """
     批次執行：依序處理每個 issue，逐一執行完整 bug fix 流程。
@@ -482,6 +489,8 @@ async def run_batch_workflow(issue_ids: list[str]):
     passed: list[str] = []
     skipped: list[str] = []   # already_fixed or need_more_info
     failed: list[str] = []
+    timings: dict[str, float] = {}   # issue_id → elapsed seconds
+    _batch_t0 = time.perf_counter()
 
     print(f"""
 ╭──────────────────────────────────────────────────────────╮
@@ -506,8 +515,11 @@ async def run_batch_workflow(issue_ids: list[str]):
             print(f"\n{'═'*60}")
             print(f"  [{idx}/{total}] {issue_id}")
             print(f"{'═'*60}")
+            _issue_t0 = time.perf_counter()
             try:
                 await _execute_workflow(issue_id, config, project_root, mcp_manager=shared_mcp)
+                timings[issue_id] = time.perf_counter() - _issue_t0
+                print(f"\n  ⏱️  {issue_id} 耗時：{_fmt_duration(timings[issue_id])}")
                 # 讀取 analyze status 判斷是否真的跑完修復，或是中途中止
                 report_dir = AGENT_ROOT / "issues" / "reports" / config.get_project_key()
                 status = read_analyze_status(issue_id, report_dir)
@@ -516,7 +528,8 @@ async def run_batch_workflow(issue_ids: list[str]):
                 else:
                     passed.append(issue_id)
             except Exception as e:
-                print(f"\n  ❌ {issue_id} failed: {e}")
+                timings[issue_id] = time.perf_counter() - _issue_t0
+                print(f"\n  ❌ {issue_id} failed: {e}  ({_fmt_duration(timings[issue_id])})")
                 import traceback
                 traceback.print_exc()
                 failed.append(issue_id)
@@ -526,27 +539,30 @@ async def run_batch_workflow(issue_ids: list[str]):
             print("\n🔌 MCP servers stopped (batch)")
         restore()
 
+    total_elapsed = time.perf_counter() - _batch_t0
     print(f"""
 ╭──────────────────────────────────────────────────────────╮
 │      Batch Complete                                       │
 │      ✅ Fixed:   {len(passed):<41}│
 │      ⏸️  Skipped: {len(skipped):<41}│
 │      ❌ Failed:  {len(failed):<41}│
+│      ⏱️  Total:   {_fmt_duration(total_elapsed):<41}│
 ╰──────────────────────────────────────────────────────────╯""")
 
     if passed:
         print("\n  Fixed:")
         for i in passed:
-            print(f"    ✅ {i}")
+            print(f"    ✅ {i}  ({_fmt_duration(timings.get(i, 0))})")
     if skipped:
         print("\n  Skipped (already_fixed or need_more_info):")
         for i in skipped:
-            status = read_analyze_status(i, Path("issues/reports"))
-            print(f"    ⏸️  {i}  [{status}]")
+            report_dir = AGENT_ROOT / "issues" / "reports" / config.get_project_key()
+            status = read_analyze_status(i, report_dir)
+            print(f"    ⏸️  {i}  [{status}]  ({_fmt_duration(timings.get(i, 0))})")
     if failed:
         print("\n  Failed:")
         for i in failed:
-            print(f"    ❌ {i}")
+            print(f"    ❌ {i}  ({_fmt_duration(timings.get(i, 0))})")
 
 
 async def run_init_workflow(project_path: str, output_path: str, issue_prefix: str):
