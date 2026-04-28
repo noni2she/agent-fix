@@ -118,7 +118,7 @@ fi
 # ── 6. 全域安裝 ──────────────────────────────────
 echo ""
 echo "📥 安裝 agent-fix（SDK: $SDK_NAME）..."
-uv tool install --editable ".[$INSTALL_EXTRAS]"
+uv tool install --editable ".[$INSTALL_EXTRAS]" --python python3.13
 
 # ── 7. 驗證安裝 ──────────────────────────────────
 echo ""
