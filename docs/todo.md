@@ -575,6 +575,111 @@ Layer 1：Orchestrator（task-driven，有料才啟動，協調修復）
 | GitHub Copilot SDK only | 多 SDK Adapter                | 可切換 Copilot / Claude / OpenAI  |
 | module-level init       | `engine/workflow.py` 延遲載入 | 避免 import 時 sys.exit           |
 
+---
+
+## AGENT.md — 行為契約使用場景
+
+> AGENT.md 定義 agent 在碰到障礙時的 **problem-solving 思維協議**，
+> 與 Karpathy Guidelines（coding 行為）互補，一起作為所有 phase 的底層人格層。
+
+### 場景 1：Orchestrator-Worker 架構
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                      Orchestrator Agent                          │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ System Prompt:                                              │  │
+│  │   • Karpathy Guidelines       ← 通用 coding 規範           │  │
+│  │   • AGENT.md                  ← problem-solving 契約       │  │
+│  │   • Orchestrator SKILL.md     ← 拆派任務 / 整合結果        │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                   │
+│  Issue 進來 → 拆解 → 派發子任務                                  │
+└────┬──────────┬──────────┬──────────┬──────────┬─────────────────┘
+     │          │          │          │          │
+     ▼          ▼          ▼          ▼          ▼
+ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐
+ │Analyzer│ │Designer│ │ Fixer  │ │ Tester │ │Reviewer│
+ │ Worker │ │ Worker │ │ Worker │ │ Worker │ │ Worker │
+ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘
+
+  每個 Worker 的 system prompt 都包含：
+    ┌───────────────────────────────────┐
+    │ Karpathy Guidelines   (共用)      │  ← coding 行為規範
+    │ AGENT.md              (共用)      │  ← problem-solving 規範
+    │ Worker-specific SKILL (角色專屬)  │  ← 各 phase 流程
+    └───────────────────────────────────┘
+```
+
+**好處**：
+- 5 種 Worker 不需要各自定義「碰到牆怎麼辦」
+- Orchestrator 收到的 worker 結果格式統一（`[tested]` / `[inferred]` 標籤一致）
+- 加新 Worker 角色時只需寫該角色的 SKILL.md，行為規範自動繼承
+
+---
+
+### 場景 2：Claude Plugin 化（Stage 10）
+
+```
+your-bugfix-plugin/
+├── .claude-plugin/
+│   └── plugin.json           ← plugin metadata
+├── CLAUDE.md                 ← Karpathy Guidelines（plugin 安裝後注入 system prompt）
+├── AGENT.md                  ← problem-solving 契約（同上自動注入）
+└── skills/
+    ├── bugfix-analyze/SKILL.md
+    ├── bugfix-implement/SKILL.md
+    ├── bugfix-test/SKILL.md
+    └── bugfix-orchestrate/SKILL.md
+```
+
+**運作方式**：
+
+```
+使用者: /skill bugfix-analyze CHATAPP-5339
+                  │
+                  ▼
+┌──────────────────────────────────────────────────────────┐
+│ Claude 載入 plugin                                        │
+│ ┌─────────────────────────────────────────────────────┐  │
+│ │ Auto-loaded into system context:                    │  │
+│ │   1. CLAUDE.md  (Karpathy Guidelines)               │  │
+│ │   2. AGENT.md   (problem-solving 契約)              │  │
+│ └─────────────────────────────────────────────────────┘  │
+│                          ↓                                │
+│ ┌─────────────────────────────────────────────────────┐  │
+│ │ Triggered skill: bugfix-analyze/SKILL.md            │  │
+│ └─────────────────────────────────────────────────────┘  │
+│                          ↓                                │
+│           Claude 執行，遵守底層行為規範 + phase 流程      │
+└──────────────────────────────────────────────────────────┘
+```
+
+**好處**：
+- 不依賴 `workflow.py` 也能單獨跑（直接在 Claude Code / Claude Desktop 使用）
+- 別人安裝 plugin 後自動繼承行為規範
+- 可宣告 `dependencies: ["karpathy-guidelines"]` 疊加 Karpathy 層，不需重複定義
+
+---
+
+### 三層人類介入模型
+
+```
+Layer 0：Agent 自處（AGENT.md 定義範圍）
+  碰到障礙 → tool inventory → 嘗試 → 記錄 → 繼續
+  ↓ 自處失敗（confidence < 0.6 或 N 次 retry 都 FAIL）
+
+Layer 1：In-flight Checkpoint（workflow.py 觸發，同步 blocking）
+  暫停 workflow → 發通知 → 等人類補充 context → 繼續
+  ↓ checkpoint 通過或未觸發
+
+Layer 2：MR Review（非同步 non-blocking，人類最終審核）
+  自動 commit & push → 自動開 MR → 人類 review → 留 comment
+  → Agent 接收 comment → 修正 → push 新 commit → 人類 merge
+```
+
+---
+
 ## 相關連結
 
 - **agent-bugfix**（公司版）：GitLab 內部
