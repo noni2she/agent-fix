@@ -27,10 +27,12 @@ class AgentEvent:
         "message"    — agent 輸出文字片段（content 有值）
         "tool_start" — agent 開始呼叫工具（tool_name 有值）
         "idle"       — agent 本輪執行結束，等待下一條訊息
+        "usage"      — token 用量（usage 有值：{"input": int, "output": int}）
     """
     type: str
     content: Optional[str] = None
     tool_name: Optional[str] = None
+    usage: Optional[dict] = None
 
 
 # ==========================================
@@ -57,6 +59,7 @@ class AgentSession:
         self._native = native
         self._handlers: List[Callable[[AgentEvent], None]] = []
         self.pending_messages: List[str] = []
+        self.token_usage: dict = {"input": 0, "output": 0}
 
     def on(self, handler: Callable[[AgentEvent], None]) -> None:
         """訂閱標準化事件"""

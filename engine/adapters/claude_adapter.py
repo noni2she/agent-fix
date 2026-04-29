@@ -141,6 +141,13 @@ class ClaudeAdapter(AgentAdapter):
                 messages=native.messages,
             )
 
+            # 回報 token 用量
+            if hasattr(response, "usage") and response.usage:
+                session.emit(AgentEvent(type="usage", usage={
+                    "input": getattr(response.usage, "input_tokens", 0),
+                    "output": getattr(response.usage, "output_tokens", 0),
+                }))
+
             # 收集文字輸出
             for block in response.content:
                 if block.type == "text" and block.text:

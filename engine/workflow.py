@@ -262,7 +262,7 @@ async def _execute_workflow(
     config: ProjectConfig,
     project_root: Path,
     mcp_manager=None,
-):
+) -> dict:
     """
     執行完整 bug fix 流程：
       Phase 1 (analyze) + Phase 2 (implement) → 共用 session
@@ -270,6 +270,7 @@ async def _execute_workflow(
       Test FAIL → retry implement 回主 session（帶失敗回饋）
 
     mcp_manager：可從外部傳入（batch 模式共用），若為 None 則自行建立與關閉。
+    Returns: {"input": int, "output": int} 本次 workflow 總 token 用量
     """
     # issues/ 報告目錄：issues/reports/<project-key>/（固定在 agent root，不是目標專案）
     project_key = config.get_project_key()
@@ -354,13 +355,13 @@ Write screenshots to: {AGENT_ROOT / "issues" / "screenshots" / project_key / iss
         print(f"     Report: issues/reports/{issue_id}/analyze.md")
         if mcp_manager:
             await mcp_manager.stop()
-        return
+        return _sum_tokens(main_session)
     if status != "confirmed":
         print(f"\n  ⏸️  Analysis stopped (status={status}) — insufficient information to proceed.")
         print(f"     Check issues/reports/{issue_id}/analyze.md for known findings.")
         if mcp_manager:
             await mcp_manager.stop()
-        return
+        return _sum_tokens(main_session)
 
     # ----------------------------------------
     # Phase 2: bugfix-implement（同一 session）
@@ -397,6 +398,7 @@ Project Context (commands & paths):
     # ----------------------------------------
     # Phase 3: bugfix-test（每次 fork 新 session）
     # ----------------------------------------
+    test_tokens: dict = {"input": 0, "output": 0}
     max_retries = 3
     for retry in range(max_retries + 1):
         label = f"Phase 3 / bugfix-test{f' (retry {retry})' if retry > 0 else ''}"
@@ -436,6 +438,8 @@ Context reports to read:
 Write your verification report to: {report_path}
 """
         await run_in_session(test_session, "test", test_msg, max_tool_calls=40)
+        test_tokens["input"] += test_session.token_usage.get("input", 0)
+        test_tokens["output"] += test_session.token_usage.get("output", 0)
 
         verdict = read_test_verdict(issue_id, report_dir, retry)
         print(f"\n  ⚖️  Verdict: {verdict}")
@@ -443,7 +447,10 @@ Write your verification report to: {report_path}
         if verdict == "PASS":
             print(f"\n  ✅ Fix complete! All checks passed.")
             print(f"     Reports: {report_dir / issue_id}/")
-            return
+            return {
+                "input": main_session.token_usage.get("input", 0) + test_tokens["input"],
+                "output": main_session.token_usage.get("output", 0) + test_tokens["output"],
+            }
 
         if retry < max_retries:
             print(f"\n  🔄 Test FAIL → retry implement ({retry + 1}/{max_retries})")
@@ -471,12 +478,31 @@ Context:
             )
         else:
             print(f"\n  💀 Max retries ({max_retries}) reached, workflow terminated")
+            return {
+                "input": main_session.token_usage.get("input", 0) + test_tokens["input"],
+                "output": main_session.token_usage.get("output", 0) + test_tokens["output"],
+            }
 
 
 def _fmt_duration(seconds: float) -> str:
     """將秒數格式化為可讀字串，如 '2m 34s' 或 '45s'。"""
     m, s = divmod(int(seconds), 60)
     return f"{m}m {s:02d}s" if m else f"{s}s"
+
+
+def _fmt_tokens(n: int) -> str:
+    """將 token 數格式化為 '12.3K' 或 '850'。"""
+    return f"{n / 1000:.1f}K" if n >= 1000 else str(n)
+
+
+def _sum_tokens(*sessions) -> dict:
+    """合併多個 session 的 token_usage。"""
+    total = {"input": 0, "output": 0}
+    for s in sessions:
+        if s and hasattr(s, "token_usage"):
+            total["input"] += s.token_usage.get("input", 0)
+            total["output"] += s.token_usage.get("output", 0)
+    return total
 
 
 async def run_batch_workflow(issue_ids: list[str]):
@@ -495,6 +521,7 @@ async def run_batch_workflow(issue_ids: list[str]):
     skipped: list[str] = []   # already_fixed or need_more_info
     failed: list[str] = []
     timings: dict[str, float] = {}   # issue_id → elapsed seconds
+    token_stats: dict[str, dict] = {}  # issue_id → {"input": int, "output": int}
     _batch_t0 = time.perf_counter()
 
     print(f"""
@@ -522,9 +549,13 @@ async def run_batch_workflow(issue_ids: list[str]):
             print(f"{'═'*60}")
             _issue_t0 = time.perf_counter()
             try:
-                await _execute_workflow(issue_id, config, project_root, mcp_manager=shared_mcp)
+                tok = await _execute_workflow(issue_id, config, project_root, mcp_manager=shared_mcp)
                 timings[issue_id] = time.perf_counter() - _issue_t0
-                print(f"\n  ⏱️  {issue_id} 耗時：{_fmt_duration(timings[issue_id])}")
+                token_stats[issue_id] = tok or {"input": 0, "output": 0}
+                tk = token_stats[issue_id]
+                total_tok = tk["input"] + tk["output"]
+                tok_str = f" | 🔢 {_fmt_tokens(total_tok)} (in {_fmt_tokens(tk['input'])} / out {_fmt_tokens(tk['output'])})" if total_tok else ""
+                print(f"\n  ⏱️  {issue_id} 耗時：{_fmt_duration(timings[issue_id])}{tok_str}")
                 # 讀取 analyze status 判斷是否真的跑完修復，或是中途中止
                 report_dir = AGENT_ROOT / "issues" / "reports" / config.get_project_key()
                 status = read_analyze_status(issue_id, report_dir)
@@ -534,6 +565,7 @@ async def run_batch_workflow(issue_ids: list[str]):
                     passed.append(issue_id)
             except Exception as e:
                 timings[issue_id] = time.perf_counter() - _issue_t0
+                token_stats[issue_id] = {"input": 0, "output": 0}
                 print(f"\n  ❌ {issue_id} failed: {e}  ({_fmt_duration(timings[issue_id])})")
                 import traceback
                 traceback.print_exc()
@@ -545,6 +577,10 @@ async def run_batch_workflow(issue_ids: list[str]):
         restore()
 
     total_elapsed = time.perf_counter() - _batch_t0
+    all_in = sum(v.get("input", 0) for v in token_stats.values())
+    all_out = sum(v.get("output", 0) for v in token_stats.values())
+    all_tok = all_in + all_out
+    tok_summary = f"{_fmt_tokens(all_tok)} (in {_fmt_tokens(all_in)} / out {_fmt_tokens(all_out)})" if all_tok else "—"
     print(f"""
 ╭──────────────────────────────────────────────────────────╮
 │      Batch Complete                                       │
@@ -552,22 +588,30 @@ async def run_batch_workflow(issue_ids: list[str]):
 │      ⏸️  Skipped: {len(skipped):<41}│
 │      ❌ Failed:  {len(failed):<41}│
 │      ⏱️  Total:   {_fmt_duration(total_elapsed):<41}│
+│      🔢 Tokens:  {tok_summary:<41}│
 ╰──────────────────────────────────────────────────────────╯""")
+
+    def _tok_suffix(issue_id: str) -> str:
+        tk = token_stats.get(issue_id, {})
+        t = tk.get("input", 0) + tk.get("output", 0)
+        if not t:
+            return ""
+        return f"  🔢 {_fmt_tokens(t)} (in {_fmt_tokens(tk['input'])} / out {_fmt_tokens(tk['output'])})"
 
     if passed:
         print("\n  Fixed:")
         for i in passed:
-            print(f"    ✅ {i}  ({_fmt_duration(timings.get(i, 0))})")
+            print(f"    ✅ {i}  ({_fmt_duration(timings.get(i, 0))}){_tok_suffix(i)}")
     if skipped:
         print("\n  Skipped (already_fixed or need_more_info):")
         for i in skipped:
             report_dir = AGENT_ROOT / "issues" / "reports" / config.get_project_key()
             status = read_analyze_status(i, report_dir)
-            print(f"    ⏸️  {i}  [{status}]  ({_fmt_duration(timings.get(i, 0))})")
+            print(f"    ⏸️  {i}  [{status}]  ({_fmt_duration(timings.get(i, 0))}){_tok_suffix(i)}")
     if failed:
         print("\n  Failed:")
         for i in failed:
-            print(f"    ❌ {i}  ({_fmt_duration(timings.get(i, 0))})")
+            print(f"    ❌ {i}  ({_fmt_duration(timings.get(i, 0))}){_tok_suffix(i)}")
 
 
 async def run_init_workflow(project_path: str, output_path: str, issue_prefix: str):

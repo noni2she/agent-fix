@@ -278,6 +278,10 @@ async def execute_agent_session(
                 if tool_call_count >= max_tool_calls:
                     force_output_requested = True
 
+            elif event.type == "usage" and event.usage:
+                session.token_usage["input"] += event.usage.get("input", 0)
+                session.token_usage["output"] += event.usage.get("output", 0)
+
             elif event.type == "idle":
                 if in_message_stream:
                     print()  # 確保最後一行有換行

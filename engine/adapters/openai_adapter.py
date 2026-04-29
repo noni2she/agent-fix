@@ -122,6 +122,17 @@ class OpenAIAdapter(AgentAdapter):
         # 更新對話歷史，供下一輪使用（shared session 的關鍵）
         native_session.input_list = result.to_input_list()
 
+        # 回報 token 用量
+        try:
+            usage = getattr(result, "usage", None)
+            if usage:
+                session.emit(AgentEvent(type="usage", usage={
+                    "input": getattr(usage, "input_tokens", 0),
+                    "output": getattr(usage, "output_tokens", 0),
+                }))
+        except Exception:
+            pass
+
         # 解析輸出，emit 標準化事件
         final_text = ItemHelpers.text_message_outputs(result.new_items)
         if final_text:
