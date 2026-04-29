@@ -157,14 +157,34 @@ class CopilotAdapter(AgentAdapter):
             from copilot.generated.session_events import SessionEventType
 
             event_type = event.type
+            data = getattr(event, "data", None)
 
             if event_type == SessionEventType.ASSISTANT_MESSAGE:
-                content = getattr(event.data, "content", None) if hasattr(event, "data") else None
+                content = getattr(data, "content", None) if data is not None else None
                 if content and isinstance(content, str):
                     session.emit(AgentEvent(type="message", content=content))
 
+                # Best-effort token usage（Copilot SDK 不保證一定有）
+                usage = getattr(data, "usage_info", None) or getattr(data, "usage", None)
+                if usage:
+                    input_tokens = (
+                        getattr(usage, "prompt_tokens", None)
+                        or getattr(usage, "input_tokens", None)
+                        or 0
+                    )
+                    output_tokens = (
+                        getattr(usage, "completion_tokens", None)
+                        or getattr(usage, "output_tokens", None)
+                        or 0
+                    )
+                    if input_tokens or output_tokens:
+                        session.emit(AgentEvent(type="usage", usage={
+                            "input": input_tokens,
+                            "output": output_tokens,
+                        }))
+
             elif event_type == SessionEventType.EXTERNAL_TOOL_REQUESTED:
-                tool_name = getattr(event.data, "tool_name", None) or "Unknown"
+                tool_name = getattr(data, "tool_name", None) or "Unknown"
                 session.emit(AgentEvent(type="tool_start", tool_name=tool_name))
 
             elif event_type == SessionEventType.SESSION_IDLE:
