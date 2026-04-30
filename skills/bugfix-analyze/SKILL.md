@@ -161,6 +161,40 @@ Issue 可能為兩種格式：
 - **i18n 翻譯錯誤**
 - **共用元件的客製化機制**（className prop、style prop、render props 等）
 
+### Step 2.5: 外部契約檢查（External Contract Discipline）
+
+當你準備建議的修復方向涉及「改變程式碼解讀外部 API response / 第三方資料 / 後端事件的方式」時，先執行此步驟。
+
+**觸發條件**（符合任一即執行）：
+- 修復會改變讀取的 response 欄位名稱
+- 修復會修改判斷「成功 / 失敗 / 異常」的條件
+- 修復假設外部回傳的格式、列舉值或順序
+
+#### 2.5.1 驗證契約
+
+依序嘗試，找到任一佐證即可繼續：
+
+| 驗證方式 | 通過條件 |
+|---------|---------|
+| API 文件 | Project Context / repo 內找到對應 API 文件，欄位定義與修復方向一致 |
+| 瀏覽器實測 | network tab 取得實際 response，確認欄位真實樣貌 |
+| 同一 API 的其他呼叫端 | codebase 內其他地方對同一 API 的用法可作為間接佐證 |
+
+**三個都無法驗證 → 不可修改契約相關程式碼 → Confidence Score 強制扣 0.40，輸出 `need_more_info`**
+
+#### 2.5.2 「程式碼看起來是對的」也是有效結論
+
+若靜態分析顯示前端程式碼邏輯與契約一致，但 issue 描述顯示功能仍失常：
+
+- **不要為了「找到能改的地方」而幻覺式修改**（例如：改欄位名、加防禦性條件）
+- 結論應為：bug 不在前端，可能在 API / 後端 / 資料來源
+- 輸出 `need_more_info`，並在 `Browser Reproduction Issues` 欄位標註：
+  ```
+  Frontend code aligns with observed/documented API contract.
+  Symptom suggests issue may be in: <API endpoint / backend service>
+  Recommend investigating: <具體建議，如「check why /api/profanity-check returns is_profane=false for known profane input」>
+  ```
+
 ### Step 3: 影響範圍分析
 
 **只在確認根本原因後**檢查引用：
@@ -241,7 +275,12 @@ Issue 可能為兩種格式：
   - 方案 A：<描述> — UX 規則對照：<符合/違反哪條規則>
   - 方案 B：<描述> — UX 規則對照：<符合/違反哪條規則>
 - **Suggested Fix**: <最終選定的修復方式（UX 評估後的結果）>
-- **Confidence Score**: <0-1 的置信度>
+- **Confidence Score**: <依下表計算，base 1.0 扣分制，最低 0.1>
+  - 根因定位：確切檔案+行號 (0) / 確切檔案無行號 (-0.10) / 只有模組名 (-0.25) / 無法定位 (-0.50)
+  - 佐證來源：瀏覽器直接觀察 (0) / console error 或 network 4xx 間接佐證 (-0.05) / 靜態分析無法重現 (-0.20) / 純假設無工具佐證 (-0.40)
+  - 假設競爭：根因唯一 (0) / 有 1 個備選假設 (-0.05) / 有 2+ 個等可能假設 (-0.15)
+  - 修復路徑：明確知道改哪行 (0) / 方向明確細節待確認 (-0.05) / 修復方式不確定 (-0.10)
+  - 外部依賴假設：不涉及外部契約 (0) / 涉及且有文件或實測佐證 (-0.05) / 涉及但僅靠程式碼推測 (-0.40) / 程式碼看起來正確但行為失常（bug 可能在外部）→ 強制 need_more_info
 - **Browser Reproduction Issues**: <瀏覽器操作時碰到的問題，如未登入導致 401、頁面跳轉錯誤等>（重現失敗時填寫，靜態分析也找到根因時仍保留）
 ```
 

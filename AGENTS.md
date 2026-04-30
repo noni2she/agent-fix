@@ -97,6 +97,8 @@ All conclusions in reports must be labeled by source:
 > `[inferred]` `SortableMediaItem` lacks `React.memo`, will re-render on every parent re-render
 > `[tested]` While typing in textarea, Chrome DevTools Profiler shows `SortableMediaItem` re-rendered 12 times
 
+**External contract rule**: When a fix involves changing how external API responses / third-party data are interpreted (field names, status conditions, formats), `[assumed]` evidence is **never sufficient**. You must have `[tested]` (actual network response) or `[inferred]` from verified documentation. Without either, output `need_more_info` — do not hallucinate contract changes.
+
 ---
 
 ## Rule 4: Environment Block Diagnostic
