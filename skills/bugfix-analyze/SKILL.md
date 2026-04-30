@@ -36,7 +36,7 @@ Issue 可能為兩種格式：
 
 **🔋 Token 節省規則（所有步驟皆適用）**
 
-1. **snapshot 去重**：同一頁面狀態只 `take_snapshot` 一次。已有 snapshot 後，後續操作（click / fill）直接用 snapshot 裡的 ref（如 `uid=N_M`），不要在每次操作後重新 snapshot。**只有在頁面內容因操作而發生明顯變化時**（如導航到新頁、dialog 開啟/關閉、列表刷新）才執行新的 `take_snapshot`。
+1. **snapshot 去重**：同一頁面狀態只 `take_snapshot` 一次。已有 snapshot 後，後續操作（click / fill）直接用 snapshot 裡的 ref（如 `uid=N_M`），**【嚴格禁止】每次 click / fill 後立即再次 `take_snapshot`**。**只有在頁面內容因操作而發生明顯變化時**（如導航到新頁、dialog 開啟/關閉、列表刷新）才執行新的 `take_snapshot`。
 
 2. **console 只查 error**：呼叫 `list_console_messages` 時只看 `type=error` 的項目，忽略 warning / log / info。找到 error 後直接記錄，不要遍歷所有訊息。
 
@@ -83,10 +83,12 @@ Issue 可能為兩種格式：
 
 **Step 1 — 查找 Project Context 中的 `test_fixtures_path`**
 
-- 若 Project Context 有定義 `test_fixtures_path`（絕對路徑或相對路徑）：
-  - 前往該目錄，找出符合場景的檔案（格式與用途與 issue 描述相符）
-  - 使用 `upload_file` 工具將其上傳至目標元素
-  - 繼續後續 reproduction 步驟
+- 若 Project Context 有定義 `test_fixtures_path`（絕對路徑）：
+  1. 列出該目錄下的檔案，找出符合場景的檔案（格式與 issue 描述相符，如 `.mp4` / `.jpg`）
+  2. `take_snapshot` 確認頁面上的檔案輸入框元素（`<input type="file">`）的 `uid`
+  3. 呼叫 `upload_file(uid=<uid>, filePath=<test_fixtures_path 下的絕對路徑>)` 完成上傳
+  4. **【嚴格禁止】點擊上傳按鈕後等待 OS 系統檔案對話框** — 系統對話框無法在自動化環境中操作，`upload_file` 工具是唯一正確路徑
+  5. 繼續後續 reproduction 步驟
 
 **Step 2 — `test_fixtures_path` 未定義或找不到合適檔案**
 
@@ -185,7 +187,7 @@ Issue 可能為兩種格式：
 | 驗證方式 | 通過條件 |
 |---------|---------|
 | API 文件 | Project Context / repo 內找到對應 API 文件，欄位定義與修復方向一致 |
-| 瀏覽器實測 | network tab 取得實際 response，確認欄位真實樣貌 |
+| 瀏覽器實測 | 本次 Step 0 中親自觀察到的 network tab response，確認欄位真實樣貌。⚠️ **Issue 附件截圖不算**「瀏覽器實測」—— reporter 的截圖不等於你親自取得的 network response |
 | 同一 API 的其他呼叫端 | codebase 內其他地方對同一 API 的用法可作為間接佐證 |
 
 **三個都無法驗證 → 不可修改契約相關程式碼 → Confidence Score 強制扣 0.40，輸出 `need_more_info`**
