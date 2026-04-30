@@ -109,7 +109,7 @@ Issue 可能為兩種格式：
 2. `list_console_messages` 記錄所有 type=error 的訊息
 3. `list_network_requests` 記錄失敗的 API（4xx / 5xx）
 4. 將觀察到的阻礙（如「未登入導致 401」、「跳轉到 /login」、「缺少 mock 資料」）記入 `Browser Reproduction Issues`
-5. 進入 Step 1 RCA，但**最終報告 status 必須標為 `need_more_info`**（confidence 降級，因為缺少現象佐證）
+5. 進入 Step 1 RCA，繼續完整分析——**最終 status 由靜態分析品質決定，不是由重現結果決定**
 
 > 純邏輯問題（無 UI 出口、僅在 unit test 才能觀察）也走此路徑：記錄「無法在瀏覽器觀察」後進入 Step 1。
 
@@ -119,7 +119,8 @@ Issue 可能為兩種格式：
 |------|---------|--------|
 | **重現成功** | 繼續 Step 1–4 完整分析 | `confirmed`（最終由分析品質決定） |
 | **問題已被修正**（操作後 actual 行為消失，符合 expected） | 輸出 `already_fixed` 報告，**停止分析** | `already_fixed` |
-| **重現失敗**（環境/登入/資料問題） | 記錄阻礙 → 進入 Step 1 嘗試推敲 | `need_more_info` |
+| **重現失敗，靜態分析找到明確根因**（confidence > 0.6） | 記錄阻礙 → 繼續 Steps 1–4 → 可輸出 `confirmed` | `confirmed`（於 `Browser Reproduction Issues` 說明無法重現原因） |
+| **重現失敗，靜態分析仍無法確定根因**（confidence ≤ 0.6） | 記錄所有已知線索 | `need_more_info` |
 
 **已修正時的報告格式：**
 
