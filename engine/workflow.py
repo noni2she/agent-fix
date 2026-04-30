@@ -301,7 +301,12 @@ async def _execute_workflow(
     _, analyze_body = load_skill("bugfix-analyze", SKILLS_DIR)
     _, implement_body = load_skill("bugfix-implement", SKILLS_DIR)
     _, test_body = load_skill("bugfix-test", SKILLS_DIR)
-    project_context = load_project_context(config, project_root)
+
+    # AGENTS.md 行為契約（根目錄，存在才注入）
+    _agents_md_path = AGENT_ROOT / "AGENTS.md"
+    _agents_prefix = (_agents_md_path.read_text(encoding="utf-8") + "\n\n---\n\n") if _agents_md_path.exists() else ""
+
+    project_context = _agents_prefix + load_project_context(config, project_root)
 
     print(f"\n{'=' * 60}")
     print(f"  Agent Bugfix v3.1 (Skill-Based)")

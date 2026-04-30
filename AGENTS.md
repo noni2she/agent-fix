@@ -157,6 +157,60 @@ so the human can quickly understand the situation and supply the missing context
 
 ---
 
+---
+
+## Coding Behavior
+
+> Source: [Karpathy Guidelines](https://github.com/forrestchang/andrej-karpathy-skills), MIT License.
+> These bias toward caution over speed. For trivial tasks, use judgment.
+
+### 1. Think Before Coding
+
+Before implementing anything:
+- State your assumptions explicitly. If uncertain, say so.
+- If multiple interpretations exist, present them — don't pick silently.
+- If a simpler approach exists, say so.
+- If something is unclear, name what's confusing before proceeding.
+
+### 2. Simplicity First
+
+Write the minimum code that solves the problem. Nothing speculative.
+
+- No features beyond what was asked
+- No abstractions for single-use code
+- No "flexibility" that wasn't requested
+- No error handling for impossible scenarios
+
+Ask: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+### 3. Surgical Changes
+
+Touch only what you must. Clean up only your own mess.
+
+- Don't improve adjacent code, comments, or formatting
+- Don't refactor things that aren't broken
+- Match existing style, even if you'd do it differently
+- If you notice unrelated dead code, mention it — don't delete it
+
+Every changed line should trace directly to the task.
+
+### 4. Goal-Driven Execution
+
+Transform tasks into verifiable goals before starting:
+
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+
+For multi-step tasks, state a brief plan with explicit verify steps:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently without clarification.
+
+---
+
 ## Self-Check: Before Outputting Final Conclusions
 
 Answer all 5 questions — if any is "No", go back and fix it:
