@@ -75,6 +75,32 @@ Issue 可能為兩種格式：
 
 **重現成功的標準**：操作完 `reproduction_steps` 後，觀察到的行為與 `actual` 描述一致（樣式類則為視覺呈現與 `actual` 一致）。
 
+#### 0.2a 重現需要上傳外部檔案（test fixture）
+
+當 `reproduction_steps` 中包含「上傳影片 / 圖片 / 文件」等操作，且需要實際檔案才能繼續時，依序執行：
+
+**Step 1 — 查找 Project Context 中的 `test_fixtures_path`**
+
+- 若 Project Context 有定義 `test_fixtures_path`（絕對路徑或相對路徑）：
+  - 前往該目錄，找出符合場景的檔案（格式與用途與 issue 描述相符）
+  - 使用 `upload_file` 工具將其上傳至目標元素
+  - 繼續後續 reproduction 步驟
+
+**Step 2 — `test_fixtures_path` 未定義或找不到合適檔案**
+
+- 停止重現流程
+- 在報告的 `Browser Reproduction Issues` 欄位明確記錄：
+
+  ```
+  Reproduction requires a test fixture file.
+  test_fixtures_path is not configured (or no suitable file found).
+  Reporter must provide: <描述所需檔案，如「a short .mp4 video (≤ 30s) for upload testing」>
+  ```
+
+- 將報告 status 標為 `need_more_info`，觸發 Checkpoint，等待人類補充 test fixture 後再繼續
+
+> ⚠️ 不要嘗試用 ffmpeg 或其他工具自行生成測試媒體檔案。
+
 #### 0.3 重現失敗 fallback（靜態觀察）
 
 當瀏覽器無法重現時——常見原因：未登入 / 權限不足 / 缺少測試資料 / 環境異常 / 頁面跳轉錯誤——執行以下記錄後退回靜態觀察：
