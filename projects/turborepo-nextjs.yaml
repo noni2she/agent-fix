@@ -24,6 +24,7 @@ monorepo:
 # ============================================
 paths:
   root: "../my-turborepo-app"
+  test_fixtures_path: "tests/fixtures"  # 放置上傳測試用媒體素材（影片、圖片等）的目錄
 
   shared_packages:
     - "packages/ui/"
