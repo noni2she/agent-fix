@@ -92,10 +92,30 @@ Issue 可能為兩種格式：
 
 - 若 Project Context 有定義 `test_fixtures_path`（絕對路徑）：
   1. 列出該目錄下的檔案，找出符合場景的檔案（格式與 issue 描述相符，如 `.mp4` / `.jpg`）
-  2. `take_snapshot` 確認頁面上的檔案輸入框元素（`<input type="file">`）的 `uid`
-  3. 呼叫 `upload_file(uid=<uid>, filePath=<test_fixtures_path 下的絕對路徑>)` 完成上傳
-  4. **【嚴格禁止】點擊上傳按鈕後等待 OS 系統檔案對話框** — 系統對話框無法在自動化環境中操作，`upload_file` 工具是唯一正確路徑
-  5. 繼續後續 reproduction 步驟
+  2. 依下列場景判斷如何取得 `<input type="file">` 的 uid，再呼叫 `upload_file(uid=<uid>, filePath=<絕對路徑>)`
+  3. **【嚴格禁止】點擊上傳按鈕後等待 OS 系統檔案對話框** — 系統對話框無法在自動化環境中操作
+
+  **場景 A — `<input type="file">` 在 snapshot 中可見**
+  ```
+  take_snapshot
+  → 在元素清單中找到 input[type=file] 的 uid
+  → upload_file(uid=<uid>, filePath=<path>)
+  ```
+
+  **場景 B — `<input type="file">` 是 hidden（按鈕觸發，常見於自訂上傳按鈕）**
+  ```
+  evaluate_script: document.querySelector('input[type=file]').style.display = 'block'
+  → take_snapshot → 找到現在可見的 input[type=file] 的 uid
+  → upload_file(uid=<uid>, filePath=<path>)
+  ```
+
+  **場景 C — 拖放區域（Drag & Drop zone，無 `<input type="file">`）**
+  ```
+  此場景無法用 upload_file 處理
+  → 標記為 ⚠️ high-risk，觸發 Checkpoint，等待人類補充操作方式
+  ```
+
+  4. 上傳完成後，繼續後續 reproduction 步驟
 
 **Step 2 — `test_fixtures_path` 未定義或找不到合適檔案**
 
@@ -195,6 +215,7 @@ Issue 可能為兩種格式：
 |---------|---------|
 | API 文件 | Project Context / repo 內找到對應 API 文件，欄位定義與修復方向一致 |
 | 瀏覽器實測 | 本次 Step 0 中親自觀察到的 network tab response，確認欄位真實樣貌。⚠️ **Issue 附件截圖不算**「瀏覽器實測」—— reporter 的截圖不等於你親自取得的 network response |
+| 直接呼叫 API | 瀏覽器重現失敗時的替代方案：用 `evaluate_script` 執行 `fetch` 或用 bash `curl` 直接呼叫對應 endpoint，取得真實 response body。佐證等級等同「瀏覽器實測」 |
 | 同一 API 的其他呼叫端 | codebase 內其他地方對同一 API 的用法可作為間接佐證 |
 
 **三個都無法驗證 → 不可修改契約相關程式碼 → Confidence Score 強制扣 0.40，輸出 `need_more_info`**
