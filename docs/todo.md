@@ -58,7 +58,7 @@
 ### 架構設計
 
 ```
-Orchestrator（路由層：依上游產物的 flag 決定 spawn，不做獨立分析）
+Orchestrator（Team Lead：資訊隔離 + artifact 驗證 + spawn 決策，不做獨立分析）
 ├── spawn → Analyzer subagent     輸入：issue 描述（僅此）
 │                                 輸出：analyze.md（含 needs_design_phase flag）
 ├── [條件式] spawn → Designer subagent  僅在 needs_design_phase = true 時觸發
@@ -635,18 +635,24 @@ your-bugfix-plugin/
 
 ---
 
-### 三層人類介入模型
+### 四層介入模型
 
 ```
 Layer 0：Agent 自處（AGENT.md 定義範圍）
   碰到障礙 → tool inventory → 嘗試 → 記錄 → 繼續
-  ↓ 自處失敗（confidence < 0.6 或 N 次 retry 都 FAIL）
+  ↓ 自處失敗
 
-Layer 1：In-flight Checkpoint（workflow.py 觸發，同步 blocking）
+Layer 1：Orchestrator 自動驗證閘門（orchestrator.py，無需人類）
+  artifact 語義驗證（analyze.md / implement.md / test.md）
+  Progressive Disclosure：Analyze 分段揭露 SKILL.md，每段驗證後才送下一段
+  驗證不通過 → retry（不超過上限）
+  ↓ retry 耗盡
+
+Layer 2：In-flight Checkpoint（orchestrator.py 觸發，同步 blocking）
   暫停 workflow → 發通知 → 等人類補充 context → 繼續
   ↓ checkpoint 通過或未觸發
 
-Layer 2：MR Review（非同步 non-blocking，人類最終審核）
+Layer 3：MR Review（非同步 non-blocking，人類最終審核）
   自動 commit & push → 自動開 MR → 人類 review → 留 comment
   → Agent 接收 comment → 修正 → push 新 commit → 人類 merge
 ```
