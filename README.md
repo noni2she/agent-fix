@@ -8,8 +8,10 @@
 - **Skill-Based 架構** — 以 SKILL.md 定義行為，流程邏輯與專案細節分離
 - **多 SDK 支援** — GitHub Copilot / Anthropic Claude / OpenAI Agents（一行切換）
 - **Smart Init** — LLM 自動偵測目標專案結構，生成 config.yaml
+- **Orchestrator-Worker** — 每個 phase 獨立 session，資訊隔離防止 goal contamination
+- **Progressive Disclosure** — Analyze 分三輪揭露 SKILL.md，消除 backward pressure
+- **Artifact 語義驗證** — 每次 spawn 前以純 Python 驗證上游 artifact 品質
 - **Smart Retry** — 測試失敗自動回到 implement 重修（最多 3 次）
-- **Token 優化** — analyze + implement 共用 session，test 獨立 session
 - **MCP 支援** — bugfix-analyze 階段可接 chrome-devtools-mcp 等 MCP server
 
 ## Architecture
@@ -25,6 +27,7 @@ agent-fix/
 │   └── minimal-nextjs.yaml    # 單一 Next.js 專案
 ├── engine/
 │   ├── workflow.py            # Workflow 主邏輯（init + execute，延遲載入）
+│   ├── orchestrator.py        # BugfixOrchestrator（Orchestrator-Worker 主控）
 │   ├── config.py              # ProjectConfig（Pydantic YAML 驗證）
 │   ├── project_spec.py        # ProjectSpec（TACTICAL 判斷邏輯）
 │   ├── agent_runner.py        # Session 管理，透過 adapters 操作 SDK
@@ -48,21 +51,63 @@ agent-fix/
     └── reports/<issue-id>/    # 各 Phase 報告 Markdown（輸出）
 ```
 
-### Workflow
+### Workflow（Orchestrator-Worker）
 
 ```
-analyze ──→ implement ──→ test ──→ PASS → done
-  (共用 session)           │
-                          FAIL
-                           │
-                    implement-retry ──→ test（最多 3 次）
+CLI / main.py
+    │
+    ▼
+workflow._execute_workflow()
+    │  fetch issue data（Python）
+    │  load SKILL.md × 3
+    │  build project_context
+    │
+    ▼
+BugfixOrchestrator.run()
+    │
+    ├─── Analyze Phase（Progressive Disclosure，同一 session，三輪）
+    │       │
+    │       ├── [Gate A] 只看到：preamble + Step 0.0 + issue JSON
+    │       │    ← 輸出：能力前置表
+    │       │    驗證：response 非空？
+    │       │
+    │       ├── [Gate B] 只看到：Steps 0.1–0.4（不知道 Steps 1–5 存在）
+    │       │    ← 輸出：瀏覽器操作 + 截圖
+    │       │    驗證：screenshot 存在 OR 有觀察文字？
+    │       │
+    │       └── [Gate C] 只看到：Steps 1–5 + output format + report path
+    │            ← 輸出：analyze.md（含 [tested]/[inferred] 標籤）
+    │
+    ├─── Spawn Gate：validate_analyze()
+    │       status=confirmed + confidence≥0.6 + root_cause_file 存在？
+    │       FAIL → 結束（不 spawn Implement）
+    │
+    ├─── Implement Phase（獨立 session，無 analyze 推理 context）
+    │       只送：project_context + implement SKILL + analyze.md 結論
+    │       ← 輸出：implement.md + 程式碼修改
+    │
+    ├─── Spawn Gate：validate_implement()
+    │       implement.md 引用了 root_cause_file？
+    │
+    ├─── Test Phase（獨立 session）
+    │       只送：project_context + test SKILL + report paths
+    │       ← 輸出：test.md（含 Verdict: PASS/FAIL）
+    │
+    ├── PASS → 結束 ✅
+    │
+    └── FAIL（最多 3 次）
+         → 新 Implement session（帶 test failure report）
+         → 新 Test session
+         → 直到 PASS 或達上限
 ```
 
-| Phase | Session | 輸出 |
-|-------|---------|------|
-| **analyze** | 主 session（含 MCP） | `issues/reports/<id>/analyze.md` |
-| **implement** | 主 session（保留 context） | `issues/reports/<id>/implement.md` |
-| **test** | 獨立 session（省 token） | `issues/reports/<id>/test.md` |
+| Phase | Session | Context 隔離 | 輸出 |
+|-------|---------|-------------|------|
+| **analyze** Gate A | 主 session（含 MCP） | issue + Step 0.0 only | 能力前置表 |
+| **analyze** Gate B | 同 session（同 MCP） | Steps 0.1–0.4 only | 截圖 + 觀察 |
+| **analyze** Gate C | 同 session | Steps 1–5 + report path | `analyze.md` |
+| **implement** | 獨立 session | analyze.md 結論 only | `implement.md` |
+| **test** | 獨立 session | report paths only | `test.md` |
 
 ## Quick Start
 
@@ -176,4 +221,4 @@ uv run pytest
 
 ---
 
-**Version**: v3.1.0 | **License**: MIT
+**Version**: v4.0.0 | **License**: MIT
