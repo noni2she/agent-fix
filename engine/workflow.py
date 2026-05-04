@@ -35,6 +35,7 @@ from .agent_runner import (
     INIT_TOOLS,
 )
 from .mcp_client import MCPClientManager
+from .orchestrator import BugfixOrchestrator
 from .tools import init_tools, set_current_issue_id
 
 # skills/ 目錄路徑：相對於此檔案，往上一層再進 skills/
@@ -309,7 +310,7 @@ async def _execute_workflow(
     project_context = _agents_prefix + load_project_context(config, project_root)
 
     print(f"\n{'=' * 60}")
-    print(f"  Agent Bugfix v3.1 (Skill-Based)")
+    print(f"  Agent Bugfix v4.0 (Orchestrator-Worker)")
     print(f"  Project: {config.project_name}")
     print(f"  Issue: {issue_id}")
     print(f"{'=' * 60}")
@@ -325,168 +326,28 @@ async def _execute_workflow(
             mcp_manager = await MCPClientManager.create(enabled_mcp)
 
     # ----------------------------------------
-    # 建立主 session（analyze + implement 共用）
+    # Orchestrator-Worker 架構
     # ----------------------------------------
-    print("\n🔧 建立主 session (analyze + implement)...")
-    _, main_session = await create_session(ANALYZE_IMPLEMENT_TOOLS, mcp_manager=mcp_manager)
+    orchestrator = BugfixOrchestrator(
+        config=config,
+        project_root=project_root,
+        agent_root=AGENT_ROOT,
+        mcp_manager=mcp_manager,
+        skills={
+            "analyze": analyze_body,
+            "implement": implement_body,
+            "test": test_body,
+        },
+        project_context=project_context,
+    )
 
-    # ----------------------------------------
-    # Phase 1: bugfix-analyze
-    # ----------------------------------------
-    print(f"\n{'─' * 60}")
-    print("  Phase 1 / bugfix-analyze")
-    print(f"{'─' * 60}")
+    tokens = await orchestrator.run(issue_id, issue_json=issue_json, images=issue_images or None)
 
-    analyze_msg = f"""{project_context}{analyze_body}
-
----
-
-Task: Analyze the following issue.
-
-Issue report:
-{issue_json}
-
-Target project root (source code): {project_root}
-Write analysis report to: {report_dir / issue_id / "analyze.md"}
-Write screenshots to: {AGENT_ROOT / "issues" / "screenshots" / project_key / issue_id}/
-"""
-    await run_in_session(main_session, "analyze", analyze_msg, max_tool_calls=50,
-                         images=issue_images or None)
-
-    status = read_analyze_status(issue_id, report_dir)
-    print(f"\n  📊 Analyze status: {status}")
-    if status == "already_fixed":
-        print(f"\n  ✅ Issue already fixed in codebase, no action needed.")
-        print(f"     Report: issues/reports/{issue_id}/analyze.md")
-        if mcp_manager:
-            await mcp_manager.stop()
-        return _sum_tokens(main_session)
-    if status != "confirmed":
-        print(f"\n  ⏸️  Analysis stopped (status={status}) — insufficient information to proceed.")
-        print(f"     Check issues/reports/{issue_id}/analyze.md for known findings.")
-        if mcp_manager:
-            await mcp_manager.stop()
-        return _sum_tokens(main_session)
-
-    # ----------------------------------------
-    # Phase 2: bugfix-implement（同一 session）
-    # ----------------------------------------
-    print(f"\n{'─' * 60}")
-    print("  Phase 2 / bugfix-implement")
-    print(f"{'─' * 60}")
-
-    implement_msg = f"""---
-## ROLE SWITCH: bugfix-implement
-
-You've completed the analysis phase above. The code investigation is in this session's context — you don't need to re-read files you already read. Now switch to implementation mode.
-
-{implement_body}
-
----
-
-Task: Implement the fix for issue {issue_id}.
-Target project root (source code): {project_root}
-
-Read analysis report from: {report_dir / issue_id / "analyze.md"}
-Write implementation report to: {report_dir / issue_id / "implement.md"}
-
-Project Context (commands & paths):
-{project_context}"""
-    await run_in_session(main_session, "implement", implement_msg, max_tool_calls=30)
-
-    # MCP servers：自行建立的才在此關閉；外部共用的由 batch 層負責關閉
     if _owns_mcp and mcp_manager:
         await mcp_manager.stop()
-        mcp_manager = None
         print("\n🔌 MCP servers stopped")
 
-    # ----------------------------------------
-    # Phase 3: bugfix-test（每次 fork 新 session）
-    # ----------------------------------------
-    test_tokens: dict = {"input": 0, "output": 0}
-    max_retries = 3
-    for retry in range(max_retries + 1):
-        label = f"Phase 3 / bugfix-test{f' (retry {retry})' if retry > 0 else ''}"
-        print(f"\n{'─' * 60}")
-        print(f"  {label}")
-        print(f"{'─' * 60}")
-
-        _, test_session = await create_session(TEST_TOOLS)
-
-        retry_section = ""
-        if retry > 0:
-            prev = read_report(issue_id, "test", report_dir, retry - 1) if retry > 1 else read_report(issue_id, "test", report_dir)
-            retry_section = f"""
-## Previous Test Failure (retry {retry})
-
-{prev}
-
-The engineer has made additional fixes. Re-verify everything.
-"""
-
-        report_path = (
-            report_dir / issue_id / "test.md" if retry == 0
-            else report_dir / issue_id / f"test-retry-{retry}.md"
-        )
-
-        test_msg = f"""{project_context}{test_body}
-{retry_section}
----
-
-Task: Verify the fix for issue {issue_id}.
-Target project root (source code): {project_root}
-
-Context reports to read:
-- Analysis: {report_dir / issue_id / "analyze.md"}
-- Implementation: {report_dir / issue_id / "implement.md"}
-
-Write your verification report to: {report_path}
-"""
-        await run_in_session(test_session, "test", test_msg, max_tool_calls=40)
-        test_tokens["input"] += test_session.token_usage.get("input", 0)
-        test_tokens["output"] += test_session.token_usage.get("output", 0)
-
-        verdict = read_test_verdict(issue_id, report_dir, retry)
-        print(f"\n  ⚖️  Verdict: {verdict}")
-
-        if verdict == "PASS":
-            print(f"\n  ✅ Fix complete! All checks passed.")
-            print(f"     Reports: {report_dir / issue_id}/")
-            return {
-                "input": main_session.token_usage.get("input", 0) + test_tokens["input"],
-                "output": main_session.token_usage.get("output", 0) + test_tokens["output"],
-            }
-
-        if retry < max_retries:
-            print(f"\n  🔄 Test FAIL → retry implement ({retry + 1}/{max_retries})")
-            test_report = read_report(issue_id, "test", report_dir, retry)
-            retry_msg = f"""---
-## IMPLEMENT RETRY {retry + 1}/{max_retries}: Previous fix failed
-
-The previous implementation did not pass verification. Here is the test failure report:
-
-{test_report}
-
-{implement_body}
-
----
-
-Task: Fix the identified issues for {issue_id}.
-Target project root (source code): {project_root}
-
-Context:
-- Analysis: {report_dir / issue_id / "analyze.md"}
-- Previous implementation: {report_dir / issue_id / "implement.md"}
-"""
-            await run_in_session(
-                main_session, f"implement-retry-{retry + 1}", retry_msg, max_tool_calls=30
-            )
-        else:
-            print(f"\n  💀 Max retries ({max_retries}) reached, workflow terminated")
-            return {
-                "input": main_session.token_usage.get("input", 0) + test_tokens["input"],
-                "output": main_session.token_usage.get("output", 0) + test_tokens["output"],
-            }
+    return tokens
 
 
 def _fmt_duration(seconds: float) -> str:

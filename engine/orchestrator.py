@@ -1,0 +1,437 @@
+# engine/orchestrator.py
+"""
+BugfixOrchestrator — Stage 5 Orchestrator-Worker 架構
+
+設計原則：
+  - 資訊隔離：每個 subagent 只收到完成當前任務所需的最小 context
+  - Progressive Disclosure (Gated Reveal)：Analyze 分三輪揭露 SKILL.md
+      Gate A → Step 0.0（能力前置檢查）
+      Gate B → Steps 0.1–0.4（瀏覽器重現）
+      Gate C → Steps 1–5（RCA + 報告）
+  - Artifact 語義驗證：每次 spawn 前用純 Python 驗證上游 artifact
+  - Retry 粒度：Gate 層級重試（非整個 phase 重跑）
+"""
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+from .agent_runner import create_session, run_in_session, ANALYZE_IMPLEMENT_TOOLS, TEST_TOOLS
+from .config import ProjectConfig
+
+
+MAX_IMPLEMENT_RETRIES = 3
+MAX_GATE_RETRIES = 2
+
+
+@dataclass
+class GateResult:
+    passed: bool
+    reason: str
+
+
+class BugfixOrchestrator:
+    def __init__(
+        self,
+        config: ProjectConfig,
+        project_root: Path,
+        agent_root: Path,
+        mcp_manager,
+        skills: dict,
+        project_context: str,
+    ):
+        self.config = config
+        self.project_root = project_root
+        self.agent_root = agent_root
+        self.mcp_manager = mcp_manager
+        self.skills = skills
+        self.project_context = project_context
+
+        project_key = config.get_project_key()
+        self.report_dir = agent_root / "issues" / "reports" / project_key
+        self.report_dir.mkdir(parents=True, exist_ok=True)
+
+        self._gates = self._parse_gates(skills["analyze"])
+        self._tokens: dict = {"input": 0, "output": 0}
+
+    # ──────────────────────────────────────────
+    # Public entry point
+    # ──────────────────────────────────────────
+
+    async def run(self, issue_id: str, issue_json: str, images: list | None = None) -> dict:
+        print(f"\n{'═'*60}")
+        print(f"  🎯 Orchestrator: {issue_id}")
+        print(f"{'═'*60}")
+
+        # ── Analyze phase（Progressive Disclosure）──
+        analyze_status = await self._run_analyze(issue_id, issue_json, images)
+
+        if analyze_status == "already_fixed":
+            print("\n  ✅ Already fixed — no further action.")
+            print(f"     Report: {self.report_dir / issue_id / 'analyze.md'}")
+            return self._tokens
+
+        if analyze_status != "confirmed":
+            print(f"\n  ⏸  Analyze ended with status={analyze_status}")
+            print(f"     Check: {self.report_dir / issue_id / 'analyze.md'}")
+            return self._tokens
+
+        # ── Spawn gate：validate analyze.md before implement ──
+        gate = self._validate_analyze(issue_id)
+        self._log_gate("analyze→implement", gate)
+        if not gate.passed:
+            print("  ⏸  Implement not spawned.")
+            return self._tokens
+
+        # ── Implement + Test loop ──
+        for retry in range(MAX_IMPLEMENT_RETRIES + 1):
+            await self._run_implement(issue_id, retry=retry)
+
+            gate = self._validate_implement(issue_id)
+            self._log_gate("implement→test", gate)
+
+            verdict = await self._run_test(issue_id, retry=retry)
+            print(f"\n  ⚖️  Verdict: {verdict}")
+
+            if verdict == "PASS":
+                print(f"\n  ✅ Fix complete! Reports: {self.report_dir / issue_id}/")
+                return self._tokens
+
+            if retry < MAX_IMPLEMENT_RETRIES:
+                print(f"\n  🔄 FAIL → re-implement ({retry + 1}/{MAX_IMPLEMENT_RETRIES})")
+            else:
+                print(f"\n  💀 Max retries ({MAX_IMPLEMENT_RETRIES}) reached.")
+
+        return self._tokens
+
+    # ──────────────────────────────────────────
+    # Analyze — Progressive Disclosure
+    # ──────────────────────────────────────────
+
+    async def _run_analyze(self, issue_id: str, issue_json: str, images: list | None) -> str:
+        print(f"\n{'─'*60}")
+        print("  Phase: analyze (Gated Reveal)")
+        print(f"{'─'*60}")
+
+        _, session = await create_session(ANALYZE_IMPLEMENT_TOOLS, mcp_manager=self.mcp_manager)
+
+        # ── Gate A: capability pre-check ──
+        gate_a_ok = False
+        for attempt in range(MAX_GATE_RETRIES + 1):
+            prompt = self._build_gate_a_prompt(issue_id, issue_json)
+            response = await run_in_session(
+                session, "analyze-gate-A", prompt,
+                max_tool_calls=15,
+                images=images if attempt == 0 else None,
+            )
+            gate = self._validate_gate_a(response)
+            if gate.passed:
+                gate_a_ok = True
+                break
+            if attempt < MAX_GATE_RETRIES:
+                print(f"\n  ⚠️  Gate A failed ({gate.reason}), retry {attempt + 1}/{MAX_GATE_RETRIES}")
+            else:
+                print(f"\n  ❌ Gate A failed after {MAX_GATE_RETRIES} retries — Checkpoint required")
+
+        if not gate_a_ok:
+            self._accumulate(session)
+            return "need_more_info"
+
+        # ── Gate B: browser reproduction ──
+        screenshot_dir = (
+            self.agent_root / "issues" / "screenshots"
+            / self.config.get_project_key() / issue_id
+        )
+        for attempt in range(MAX_GATE_RETRIES + 1):
+            prompt = self._build_gate_b_prompt(issue_id, screenshot_dir)
+            response = await run_in_session(session, "analyze-gate-B", prompt, max_tool_calls=30)
+            gate = self._validate_gate_b(response, screenshot_dir)
+            if gate.passed:
+                break
+            if attempt < MAX_GATE_RETRIES:
+                print(f"\n  ⚠️  Gate B failed ({gate.reason}), retry {attempt + 1}/{MAX_GATE_RETRIES}")
+            else:
+                print(f"\n  ⚠️  Gate B: {gate.reason} — proceeding to RCA with available observations")
+                break  # Gate B failure is non-fatal; Gate C decides status via analyze.md
+
+        # ── Gate C: RCA + report ──
+        report_path = self.report_dir / issue_id / "analyze.md"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+
+        for attempt in range(2):
+            prompt = self._build_gate_c_prompt(issue_id, report_path)
+            await run_in_session(session, "analyze-gate-C", prompt, max_tool_calls=40)
+            if report_path.exists():
+                break
+            if attempt == 0:
+                print("\n  ⚠️  analyze.md not written — retrying Gate C...")
+
+        self._accumulate(session)
+        status = self._read_analyze_status(issue_id)
+        print(f"\n  📊 Analyze status: {status}")
+        return status
+
+    # ──────────────────────────────────────────
+    # Implement phase
+    # ──────────────────────────────────────────
+
+    async def _run_implement(self, issue_id: str, retry: int = 0) -> None:
+        label = f"implement{f'-retry-{retry}' if retry > 0 else ''}"
+        print(f"\n{'─'*60}")
+        print(f"  Phase: {label}")
+        print(f"{'─'*60}")
+
+        _, session = await create_session(ANALYZE_IMPLEMENT_TOOLS)
+        prompt = self._build_implement_prompt(issue_id, retry=retry)
+        await run_in_session(session, label, prompt, max_tool_calls=30)
+        self._accumulate(session)
+
+    # ──────────────────────────────────────────
+    # Test phase
+    # ──────────────────────────────────────────
+
+    async def _run_test(self, issue_id: str, retry: int = 0) -> str:
+        label = f"test{f'-retry-{retry}' if retry > 0 else ''}"
+        print(f"\n{'─'*60}")
+        print(f"  Phase: {label}")
+        print(f"{'─'*60}")
+
+        _, session = await create_session(TEST_TOOLS)
+        prompt = self._build_test_prompt(issue_id, retry=retry)
+        await run_in_session(session, label, prompt, max_tool_calls=40)
+        self._accumulate(session)
+
+        return self._read_test_verdict(issue_id, retry)
+
+    # ──────────────────────────────────────────
+    # Prompt builders — information isolation
+    # ──────────────────────────────────────────
+
+    def _build_gate_a_prompt(self, issue_id: str, issue_json: str) -> str:
+        preamble = self._gates["preamble"]
+        gate_a = self._gates["A"]
+        return (
+            f"{self.project_context}"
+            f"{preamble}"
+            f"\n\n---\n\n"
+            f"## 任務：Step 0.0 — 能力前置檢查\n\n"
+            f"**只執行 Step 0.0**，完成後輸出能力前置表，等待進一步指令。"
+            f"不要進行任何瀏覽器操作，不要開始分析程式碼。\n\n"
+            f"{gate_a}"
+            f"\n\n---\n\n"
+            f"Issue 資料：\n\n```json\n{issue_json}\n```\n\n"
+            f"Issue ID: {issue_id}\n"
+        )
+
+    def _build_gate_b_prompt(self, issue_id: str, screenshot_dir: Path) -> str:
+        gate_b = self._gates["B"]
+        return (
+            f"## 任務：Steps 0.1–0.4 — 瀏覽器重現\n\n"
+            f"Step 0.0 能力前置檢查已完成（見上方對話）。"
+            f"現在依照以下步驟執行瀏覽器重現，記錄觀察結果後等待進一步指令。"
+            f"**不要開始 RCA，不要讀程式碼。**\n\n"
+            f"{gate_b}"
+            f"\n\n截圖目錄：{screenshot_dir}/\n"
+            f"Issue ID: {issue_id}\n"
+        )
+
+    def _build_gate_c_prompt(self, issue_id: str, report_path: Path) -> str:
+        gate_c = self._gates["C"]
+        return (
+            f"## 任務：Steps 1–5 — RCA 分析並寫入報告\n\n"
+            f"瀏覽器重現已完成（見上方對話中的觀察記錄）。"
+            f"以這些觀察為基礎，執行完整根源分析並寫入報告。\n\n"
+            f"{gate_c}"
+            f"\n\n---\n\n"
+            f"Target project root: {self.project_root}\n"
+            f"Write analysis report to: {report_path}\n"
+            f"Issue ID: {issue_id}\n"
+        )
+
+    def _build_implement_prompt(self, issue_id: str, retry: int = 0) -> str:
+        analyze_path = self.report_dir / issue_id / "analyze.md"
+        implement_path = self.report_dir / issue_id / "implement.md"
+
+        retry_section = ""
+        if retry > 0:
+            prev_test = "test.md" if retry == 1 else f"test-retry-{retry - 1}.md"
+            test_path = self.report_dir / issue_id / prev_test
+            test_content = (
+                test_path.read_text(encoding="utf-8")
+                if test_path.exists()
+                else f"(test report not found: {prev_test})"
+            )
+            retry_section = (
+                f"\n\n## Previous Test Failure (retry {retry})\n\n"
+                f"{test_content}\n\n"
+                f"The implementation above did not pass verification. Fix the identified issues.\n"
+            )
+
+        return (
+            f"{self.project_context}"
+            f"{self.skills['implement']}"
+            f"{retry_section}"
+            f"\n\n---\n\n"
+            f"Task: Implement the fix for issue {issue_id}.\n"
+            f"Target project root: {self.project_root}\n"
+            f"Read analysis from: {analyze_path}\n"
+            f"Write implementation report to: {implement_path}\n"
+        )
+
+    def _build_test_prompt(self, issue_id: str, retry: int = 0) -> str:
+        analyze_path = self.report_dir / issue_id / "analyze.md"
+        implement_path = self.report_dir / issue_id / "implement.md"
+        report_path = self.report_dir / issue_id / (
+            "test.md" if retry == 0 else f"test-retry-{retry}.md"
+        )
+
+        return (
+            f"{self.project_context}"
+            f"{self.skills['test']}"
+            f"\n\n---\n\n"
+            f"Task: Verify the fix for issue {issue_id}.\n"
+            f"Target project root: {self.project_root}\n"
+            f"Analysis report: {analyze_path}\n"
+            f"Implementation report: {implement_path}\n"
+            f"Write verification report to: {report_path}\n"
+        )
+
+    # ──────────────────────────────────────────
+    # Gate validators (pure Python)
+    # ──────────────────────────────────────────
+
+    @staticmethod
+    def _validate_gate_a(response: str) -> GateResult:
+        if len(response.strip()) > 20:
+            return GateResult(passed=True, reason="capability assessment present in response")
+        return GateResult(passed=False, reason="response too short — Step 0.0 may not have run")
+
+    @staticmethod
+    def _validate_gate_b(response: str, screenshot_dir: Path) -> GateResult:
+        has_screenshot = screenshot_dir.exists() and any(screenshot_dir.glob("*.png"))
+        if has_screenshot:
+            return GateResult(passed=True, reason=f"screenshot found in {screenshot_dir.name}/")
+
+        observation_keywords = [
+            "重現成功", "reproduction", "actual", "observed", "screenshot",
+            "console error", "network", "4xx", "5xx", "already_fixed",
+            "重現失敗", "無法重現", "fallback",
+        ]
+        if any(kw.lower() in response.lower() for kw in observation_keywords):
+            return GateResult(passed=True, reason="observation evidence found in response")
+
+        return GateResult(passed=False, reason="no screenshot and no observation evidence")
+
+    # ──────────────────────────────────────────
+    # Spawn gate validators (artifact semantic)
+    # ──────────────────────────────────────────
+
+    def _validate_analyze(self, issue_id: str) -> GateResult:
+        path = self.report_dir / issue_id / "analyze.md"
+        if not path.exists():
+            return GateResult(passed=False, reason="analyze.md not found")
+
+        text = path.read_text(encoding="utf-8")
+
+        if not re.search(r'\*\*Status\*\*[:\s]+confirmed', text, re.IGNORECASE):
+            return GateResult(passed=False, reason="status != confirmed")
+
+        confidence_match = re.search(r'\*\*Confidence Score\*\*[:\s]+([\d.]+)', text)
+        if confidence_match:
+            try:
+                if float(confidence_match.group(1)) < 0.6:
+                    return GateResult(passed=False, reason=f"confidence {confidence_match.group(1)} < 0.6")
+            except ValueError:
+                pass
+
+        if not re.search(r'\*\*Root Cause File\*\*[:\s]+\S', text):
+            return GateResult(passed=False, reason="root_cause_file missing or empty")
+
+        return GateResult(passed=True, reason="status=confirmed, confidence≥0.6, root_cause_file present")
+
+    def _validate_implement(self, issue_id: str) -> GateResult:
+        impl_path = self.report_dir / issue_id / "implement.md"
+        if not impl_path.exists():
+            return GateResult(passed=False, reason="implement.md not found")
+
+        analyze_path = self.report_dir / issue_id / "analyze.md"
+        if not analyze_path.exists():
+            return GateResult(passed=True, reason="no analyze.md to cross-check — proceeding")
+
+        analyze_text = analyze_path.read_text(encoding="utf-8")
+        impl_text = impl_path.read_text(encoding="utf-8")
+
+        m = re.search(r'\*\*Root Cause File\*\*[:\s]+(.+)', analyze_text)
+        if not m:
+            return GateResult(passed=True, reason="no root_cause_file to cross-check — proceeding")
+
+        root_file = Path(m.group(1).strip()).name
+        if root_file and root_file not in impl_text:
+            return GateResult(
+                passed=False,
+                reason=f"root_cause_file '{root_file}' not referenced in implement.md",
+            )
+
+        return GateResult(passed=True, reason=f"root_cause_file '{root_file}' referenced in implement.md")
+
+    # ──────────────────────────────────────────
+    # Report readers
+    # ──────────────────────────────────────────
+
+    def _read_analyze_status(self, issue_id: str) -> str:
+        report = self.report_dir / issue_id / "analyze.md"
+        if not report.exists():
+            return "missing"
+        text = report.read_text(encoding="utf-8")
+        if re.search(r'\*\*Status\*\*[:\s]+already_fixed', text, re.IGNORECASE):
+            return "already_fixed"
+        if re.search(r'\*\*Status\*\*[:\s]+confirmed', text, re.IGNORECASE):
+            return "confirmed"
+        if re.search(r'\bconfirmed\b', text, re.IGNORECASE) and \
+                not re.search(r'need_more_info', text, re.IGNORECASE):
+            return "confirmed"
+        return "need_more_info"
+
+    def _read_test_verdict(self, issue_id: str, retry: int = 0) -> str:
+        filename = "test.md" if retry == 0 else f"test-retry-{retry}.md"
+        report = self.report_dir / issue_id / filename
+        if not report.exists():
+            return "FAIL"
+        text = report.read_text(encoding="utf-8")
+        m = re.search(r'\*\*Verdict\*\*[:\s]+\**\s*(PASS|FAIL)\**', text, re.IGNORECASE)
+        if m:
+            return m.group(1).upper()
+        return "PASS" if "PASS" in text.upper() and "FAIL" not in text.upper() else "FAIL"
+
+    # ──────────────────────────────────────────
+    # SKILL.md gate parser
+    # ──────────────────────────────────────────
+
+    @staticmethod
+    def _parse_gates(skill_body: str) -> dict:
+        """
+        Split SKILL.md into sections by <!-- GATE:X --> markers.
+        Returns {"preamble": str, "A": str, "B": str, "C": str}.
+        preamble = everything before the first GATE marker.
+        """
+        parts = skill_body.split("<!-- GATE:")
+        preamble = parts[0]
+        gates: dict = {"preamble": preamble, "A": "", "B": "", "C": ""}
+        for part in parts[1:]:
+            key, _, content = part.partition(" -->")
+            key = key.strip()
+            if key in gates:
+                gates[key] = content.lstrip("\n")
+        return gates
+
+    # ──────────────────────────────────────────
+    # Helpers
+    # ──────────────────────────────────────────
+
+    def _accumulate(self, session) -> None:
+        self._tokens["input"] += session.token_usage.get("input", 0)
+        self._tokens["output"] += session.token_usage.get("output", 0)
+
+    @staticmethod
+    def _log_gate(label: str, gate: GateResult) -> None:
+        icon = "✅" if gate.passed else "❌"
+        print(f"\n  🚦 Spawn gate ({label}): {icon} — {gate.reason}")
