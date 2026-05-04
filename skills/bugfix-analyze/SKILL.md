@@ -42,13 +42,13 @@ Issue 可能為兩種格式：
 
 3. **network 只查失敗 API**：呼叫 `list_network_requests` 時只關注 4xx / 5xx 的請求。`get_network_request` 只在需要看 request / response body 時才呼叫，不要對每個 request 都呼叫一遍。
 
+<!-- GATE:REPRODUCE -->
 ### Step 0: 重現問題（瀏覽器優先）
 
 **Step 0 的職責是「重現」，不是「分析」。** 透過瀏覽器親自操作出 `actual` 描述的錯誤現象，才算重現成功。重現成功後才進入 Step 1 RCA。
 
 > ⚠️ 不要在 Step 0 做程式碼追蹤或根因推理——那是 Steps 1–4 的工作。Step 0 只觀察「現象」。
 
-<!-- GATE:A -->
 #### 0.0 能力前置檢查（在所有瀏覽器操作之前執行）
 
 逐條閱讀 `reproduction_steps`，辨識每個步驟需要的操作能力。對於你不確定是否能執行的操作，掃描**目前 session 中所有可用的工具**（MCP 工具、內建工具、CLI 指令均納入），找有沒有任何工具可以達成相同目的：
@@ -56,7 +56,6 @@ Issue 可能為兩種格式：
 - 若找到對應工具 → 記下工具名稱，繼續
 - 若找不到 → 將此步驟標記為 ⚠️ high-risk，到達該步驟時若失敗立即觸發 Checkpoint，**不得靜默跳過、不得改走 fallback**
 
-<!-- GATE:B -->
 #### 0.1 提取驗證依據
 
 從 issue 中提取重現所需資訊：
@@ -167,7 +166,7 @@ Issue 可能為兩種格式：
 - **Confidence Score**: <0-1>
 ```
 
-<!-- GATE:C -->
+<!-- GATE:RCA -->
 ### Step 1: 語義定位
 
 根據 Issue 報告的「模組/功能位置」，推斷可能的檔案位置：

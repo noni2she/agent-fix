@@ -113,57 +113,39 @@ class BugfixOrchestrator:
         print(f"{'─'*60}")
 
         _, session = await create_session(ANALYZE_IMPLEMENT_TOOLS, mcp_manager=self.mcp_manager)
-
-        # ── Gate A: capability pre-check ──
-        gate_a_ok = False
-        for attempt in range(MAX_GATE_RETRIES + 1):
-            prompt = self._build_gate_a_prompt(issue_id, issue_json)
-            response = await run_in_session(
-                session, "analyze-gate-A", prompt,
-                max_tool_calls=15,
-                images=images if attempt == 0 else None,
-            )
-            gate = self._validate_gate_a(response)
-            if gate.passed:
-                gate_a_ok = True
-                break
-            if attempt < MAX_GATE_RETRIES:
-                print(f"\n  ⚠️  Gate A failed ({gate.reason}), retry {attempt + 1}/{MAX_GATE_RETRIES}")
-            else:
-                print(f"\n  ❌ Gate A failed after {MAX_GATE_RETRIES} retries — Checkpoint required")
-
-        if not gate_a_ok:
-            self._accumulate(session)
-            return "need_more_info"
-
-        # ── Gate B: browser reproduction ──
         screenshot_dir = (
             self.agent_root / "issues" / "screenshots"
             / self.config.get_project_key() / issue_id
         )
+
+        # ── Gate REPRODUCE: Step 0 全部（能力前置 + 瀏覽器重現）──
         for attempt in range(MAX_GATE_RETRIES + 1):
-            prompt = self._build_gate_b_prompt(issue_id, screenshot_dir)
-            response = await run_in_session(session, "analyze-gate-B", prompt, max_tool_calls=30)
-            gate = self._validate_gate_b(response, screenshot_dir)
+            prompt = self._build_reproduce_prompt(issue_id, issue_json, screenshot_dir)
+            response = await run_in_session(
+                session, "analyze-reproduce", prompt,
+                max_tool_calls=35,
+                images=images if attempt == 0 else None,
+            )
+            gate = self._validate_reproduce(response, screenshot_dir)
             if gate.passed:
                 break
             if attempt < MAX_GATE_RETRIES:
-                print(f"\n  ⚠️  Gate B failed ({gate.reason}), retry {attempt + 1}/{MAX_GATE_RETRIES}")
+                print(f"\n  ⚠️  Reproduce gate failed ({gate.reason}), retry {attempt + 1}/{MAX_GATE_RETRIES}")
             else:
-                print(f"\n  ⚠️  Gate B: {gate.reason} — proceeding to RCA with available observations")
-                break  # Gate B failure is non-fatal; Gate C decides status via analyze.md
+                print(f"\n  ⚠️  Reproduce gate: {gate.reason} — proceeding to RCA with available observations")
+                break  # non-fatal; RCA gate decides final status via analyze.md
 
-        # ── Gate C: RCA + report ──
+        # ── Gate RCA: Steps 1–5 + 報告 ──
         report_path = self.report_dir / issue_id / "analyze.md"
         report_path.parent.mkdir(parents=True, exist_ok=True)
 
         for attempt in range(2):
-            prompt = self._build_gate_c_prompt(issue_id, report_path)
-            await run_in_session(session, "analyze-gate-C", prompt, max_tool_calls=40)
+            prompt = self._build_rca_prompt(issue_id, report_path)
+            await run_in_session(session, "analyze-rca", prompt, max_tool_calls=40)
             if report_path.exists():
                 break
             if attempt == 0:
-                print("\n  ⚠️  analyze.md not written — retrying Gate C...")
+                print("\n  ⚠️  analyze.md not written — retrying RCA gate...")
 
         self._accumulate(session)
         status = self._read_analyze_status(issue_id)
@@ -206,41 +188,30 @@ class BugfixOrchestrator:
     # Prompt builders — information isolation
     # ──────────────────────────────────────────
 
-    def _build_gate_a_prompt(self, issue_id: str, issue_json: str) -> str:
+    def _build_reproduce_prompt(self, issue_id: str, issue_json: str, screenshot_dir: Path) -> str:
         preamble = self._gates["preamble"]
-        gate_a = self._gates["A"]
+        reproduce = self._gates["REPRODUCE"]
         return (
             f"{self.project_context}"
             f"{preamble}"
             f"\n\n---\n\n"
-            f"## 任務：Step 0.0 — 能力前置檢查\n\n"
-            f"**只執行 Step 0.0**，完成後輸出能力前置表，等待進一步指令。"
-            f"不要進行任何瀏覽器操作，不要開始分析程式碼。\n\n"
-            f"{gate_a}"
+            f"## 任務：Step 0 — 重現問題\n\n"
+            f"**只執行 Step 0**（能力前置檢查 + 瀏覽器重現），完成後記錄觀察結果，等待進一步指令。"
+            f"**不要開始 RCA，不要讀程式碼。**\n\n"
+            f"{reproduce}"
             f"\n\n---\n\n"
             f"Issue 資料：\n\n```json\n{issue_json}\n```\n\n"
+            f"截圖目錄：{screenshot_dir}/\n"
             f"Issue ID: {issue_id}\n"
         )
 
-    def _build_gate_b_prompt(self, issue_id: str, screenshot_dir: Path) -> str:
-        gate_b = self._gates["B"]
-        return (
-            f"## 任務：Steps 0.1–0.4 — 瀏覽器重現\n\n"
-            f"Step 0.0 能力前置檢查已完成（見上方對話）。"
-            f"現在依照以下步驟執行瀏覽器重現，記錄觀察結果後等待進一步指令。"
-            f"**不要開始 RCA，不要讀程式碼。**\n\n"
-            f"{gate_b}"
-            f"\n\n截圖目錄：{screenshot_dir}/\n"
-            f"Issue ID: {issue_id}\n"
-        )
-
-    def _build_gate_c_prompt(self, issue_id: str, report_path: Path) -> str:
-        gate_c = self._gates["C"]
+    def _build_rca_prompt(self, issue_id: str, report_path: Path) -> str:
+        rca = self._gates["RCA"]
         return (
             f"## 任務：Steps 1–5 — RCA 分析並寫入報告\n\n"
-            f"瀏覽器重現已完成（見上方對話中的觀察記錄）。"
+            f"Step 0 重現已完成（見上方對話中的觀察記錄）。"
             f"以這些觀察為基礎，執行完整根源分析並寫入報告。\n\n"
-            f"{gate_c}"
+            f"{rca}"
             f"\n\n---\n\n"
             f"Target project root: {self.project_root}\n"
             f"Write analysis report to: {report_path}\n"
@@ -300,13 +271,7 @@ class BugfixOrchestrator:
     # ──────────────────────────────────────────
 
     @staticmethod
-    def _validate_gate_a(response: str) -> GateResult:
-        if len(response.strip()) > 20:
-            return GateResult(passed=True, reason="capability assessment present in response")
-        return GateResult(passed=False, reason="response too short — Step 0.0 may not have run")
-
-    @staticmethod
-    def _validate_gate_b(response: str, screenshot_dir: Path) -> GateResult:
+    def _validate_reproduce(response: str, screenshot_dir: Path) -> GateResult:
         has_screenshot = screenshot_dir.exists() and any(screenshot_dir.glob("*.png"))
         if has_screenshot:
             return GateResult(passed=True, reason=f"screenshot found in {screenshot_dir.name}/")
@@ -415,7 +380,7 @@ class BugfixOrchestrator:
         """
         parts = skill_body.split("<!-- GATE:")
         preamble = parts[0]
-        gates: dict = {"preamble": preamble, "A": "", "B": "", "C": ""}
+        gates: dict = {"preamble": preamble, "REPRODUCE": "", "RCA": ""}
         for part in parts[1:]:
             key, _, content = part.partition(" -->")
             key = key.strip()
