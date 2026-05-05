@@ -498,6 +498,8 @@ def command_batch(args) -> int:
     import os
     import asyncio
     import fnmatch
+    from dotenv import load_dotenv
+    load_dotenv()
 
     if args.config:
         os.environ['PROJECT_CONFIG'] = args.config

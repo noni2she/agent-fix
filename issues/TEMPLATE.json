@@ -1,0 +1,22 @@
+{
+  "issue_id": "PROJ-001",
+  "summary": "簡短的問題標題",
+  "module": "模組名稱 > 子模組",
+  "description": "詳細的問題描述",
+  "reproduction_steps": [
+    "步驟 1: 開啟頁面 /path",
+    "步驟 2: 點擊按鈕 X",
+    "步驟 3: 觀察結果"
+  ],
+  "expected": "預期的正確行為",
+  "actual": "實際發生的錯誤行為",
+  "attachments": [
+    {
+      "type": "screenshot",
+      "path": "issues/screenshots/xxx.png",
+      "description": "錯誤截圖"
+    }
+  ],
+  "priority": "High",
+  "reporter": "張三"
+}
