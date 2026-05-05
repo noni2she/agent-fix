@@ -5,7 +5,7 @@
 import os
 import yaml
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal, Union
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -43,6 +43,10 @@ class PathsConfig(BaseModel):
     domain_logic: List[str] = Field(
         default=[],
         description="領域邏輯路徑列表"
+    )
+    test_fixtures_path: Optional[str] = Field(
+        default=None,
+        description="測試素材目錄路徑（用於 reproduction 步驟的檔案上傳）"
     )
 
 
@@ -132,11 +136,12 @@ class AuthConfig(BaseModel):
             "  Modal-based login：填有登入按鈕的頁面，如 /（首頁），並搭配 login_trigger"
         )
     )
-    login_trigger: Optional[str] = Field(
+    login_trigger: Optional[Union[str, List[str]]] = Field(
         default=None,
         description=(
-            "（選填）用來觸發登入表單出現的元素 selector。\n"
-            "  Modal login 場景：填觸發 modal 的按鈕，如 '#open-login' 或 'button:has-text(\"登入\")'\n"
+            "（選填）用來觸發登入表單出現的 selector，可為單一字串或多步驟 list。\n"
+            "  單步驟（一個按鈕觸發 modal）：填字串，如 '#open-login'\n"
+            "  多步驟（需多次點擊才能到達表單）：填 list，如 ['button.login', 'text=手机号登录']\n"
             "  URL-based login 不需要填（導向 login_url 後表單已在頁面上）"
         )
     )
@@ -179,6 +184,17 @@ class AuthConfig(BaseModel):
     password_env: str = Field(
         default="TEST_PASSWORD",
         description="存放密碼的環境變數名稱（從 .env 讀取）"
+    )
+    pre_fill_actions: List[Dict[str, str]] = Field(
+        default=[],
+        description=(
+            "（選填）填寫帳密前需要執行的 UI 動作列表，用於處理如國家選擇器等前置操作。\n"
+            "  每個 action 為 dict，支援以下格式：\n"
+            "    { action: click,  selector: 'button.country' }\n"
+            "    { action: fill,   selector: '#search', value: '台湾' }\n"
+            "    { action: wait,   selector: '#search-country' }\n"
+            "    { action: sleep,  ms: '500' }"
+        )
     )
 
 

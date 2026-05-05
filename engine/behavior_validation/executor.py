@@ -202,11 +202,17 @@ class BehaviorValidator:
                     timeout=15000,
                 )
 
-                # Modal-based login：點擊 trigger 讓表單出現
+                # Modal-based login：點擊 trigger 讓表單出現（支援單步或多步）
                 if auth.login_trigger:
-                    print(f"  🔐 觸發登入表單：{auth.login_trigger}")
-                    await runner.page.click(auth.login_trigger, timeout=10000)
-                    # 等待 password input 出現（表示 modal/表單已 render）
+                    triggers = (
+                        [auth.login_trigger]
+                        if isinstance(auth.login_trigger, str)
+                        else auth.login_trigger
+                    )
+                    for i, trigger in enumerate(triggers, 1):
+                        print(f"  🔐 觸發登入步驟 {i}/{len(triggers)}：{trigger}")
+                        await runner.page.click(trigger, timeout=10000)
+                    # 等待 password input 出現（表示最終表單已 render）
                     await runner.page.wait_for_selector(
                         "input[type=password]", timeout=10000
                     )
@@ -229,16 +235,52 @@ class BehaviorValidator:
                     print(f"  ✅ 偵測到表單：username={u_sel}, password={p_sel}, submit={s_sel}")
 
                 url_before = runner.page.url
-                await runner.page.fill(u_sel, username)
-                await runner.page.fill(p_sel, password)
+
+                # pre_fill_actions：填寫帳密前的前置 UI 操作（如切換國家選擇器）
+                if auth.pre_fill_actions:
+                    print(f"  🔐 執行 {len(auth.pre_fill_actions)} 個前置動作...")
+                    for act in auth.pre_fill_actions:
+                        a_type = act.get("action", "click")
+                        selector = act.get("selector", "")
+                        if a_type == "click":
+                            await runner.page.click(selector, timeout=8000)
+                        elif a_type == "fill":
+                            await runner.page.fill(selector, act.get("value", ""))
+                        elif a_type == "wait":
+                            await runner.page.wait_for_selector(selector, timeout=8000)
+                        elif a_type == "sleep":
+                            import asyncio as _asyncio
+                            await _asyncio.sleep(float(act.get("ms", 300)) / 1000)
+                        await runner.page.wait_for_timeout(200)
+
+                # 用 click + keyboard.type 模擬真實使用者輸入，確保 React controlled input
+                # 的 onChange 事件正確觸發（fill() 對某些 react-hook-form 版本不夠可靠）
+                await runner.page.click(u_sel)
+                await runner.page.keyboard.type(username)
+                await runner.page.click(p_sel)
+                await runner.page.keyboard.type(password)
+                # blur 密碼欄位，讓 onBlur validation 執行
+                await runner.page.press(p_sel, "Tab")
+                # 等待 submit 按鈕從 disabled 變為 enabled（最多 8 秒）
+                try:
+                    await runner.page.wait_for_selector(
+                        f"{s_sel}:not([disabled])", timeout=8000
+                    )
+                except Exception:
+                    pass  # 若按鈕本來就不是 disabled 型態，忽略逾時
                 await runner.page.click(s_sel)
 
-                # 確認登入成功：優先用指定 selector，否則等待 URL 變化
+                # 確認登入成功：優先用指定 selector，否則等待 URL 改變 或 登入表單消失
+                # （SPA 場景下登入後 URL 不一定改變，但 password input 會隨 modal 關閉而消失）
                 if auth.success_indicator:
                     await runner.page.wait_for_selector(auth.success_indicator, timeout=15000)
                 else:
                     await runner.page.wait_for_function(
-                        f"() => window.location.href !== {repr(url_before)}",
+                        f"""() => {{
+                            const urlChanged = window.location.href !== {repr(url_before)};
+                            const formGone = !document.querySelector('input[type="password"]');
+                            return urlChanged || formGone;
+                        }}""",
                         timeout=15000,
                     )
                 print(f"  ✅ 登入成功（→ {runner.page.url}）")

@@ -11,6 +11,7 @@ from .project_spec import ProjectSpec
 from .issue_source import (
     IssueSourceAdapter,
     LocalJsonAdapter,
+    JiraAdapter,
     IssueNotFoundError,
     IssueSourceError,
     IssueSourceConfigError,
@@ -44,6 +45,7 @@ __all__ = [
     # Issue Source
     "IssueSourceAdapter",
     "LocalJsonAdapter",
+    "JiraAdapter",
     "IssueNotFoundError",
     "IssueSourceError",
     "IssueSourceConfigError",
