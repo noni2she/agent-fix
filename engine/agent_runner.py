@@ -50,6 +50,12 @@ TEST_TOOLS = [
     "run_behavior_validation",
 ]
 
+# Orchestrator Agent 工具（語義判斷用，不執行 subagent）
+ORCHESTRATOR_TOOLS = [
+    "read_artifact",
+    "checkpoint",
+]
+
 # init phase：探索目標專案、生成 config.yaml
 # Copilot adapter 已內建同等工具，這裡供 Claude/OpenAI 使用
 INIT_TOOLS = [

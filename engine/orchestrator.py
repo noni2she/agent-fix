@@ -3,20 +3,28 @@
 BugfixOrchestrator — Stage 5 Orchestrator-Worker 架構
 
 設計原則：
+  - Orchestrator 是 LLM Agent（有自己的 session、AGENTS.md、工具）
+  - Judge Pattern：Python 執行各 phase，Orchestrator LLM 在每個 gate 做語義判斷
   - 資訊隔離：每個 subagent 只收到完成當前任務所需的最小 context
-  - Progressive Disclosure (Gated Reveal)：Analyze 分兩輪揭露 SKILL.md
+  - Progressive Disclosure (Gated Context Reveal)：
       Gate REPRODUCE → Step 0（能力前置 + 瀏覽器重現）
       Gate RCA       → Steps 1–5（根源分析 + 報告）
-  - Artifact 語義驗證：每次 spawn 前用純 Python 驗證上游 artifact
-  - Retry 粒度：Gate 層級重試（非整個 phase 重跑）
+  - Orchestrator 在每個 gate 語義判斷：PROCEED / RETRY / NEED_MORE_INFO / CHECKPOINT
   - Outcome 追蹤：run() 回傳 "fixed" | "failed" | "skipped"
 """
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from .agent_runner import create_session, run_in_session, ANALYZE_IMPLEMENT_TOOLS, TEST_TOOLS
+from .agent_runner import (
+    create_session,
+    run_in_session,
+    ANALYZE_IMPLEMENT_TOOLS,
+    TEST_TOOLS,
+    ORCHESTRATOR_TOOLS,
+)
 from .config import ProjectConfig
+from .tools import init_orchestrator_tools
 
 
 MAX_IMPLEMENT_RETRIES = 3
@@ -53,61 +61,136 @@ class BugfixOrchestrator:
         self._gates = self._parse_gates(skills["analyze"])
         self._tokens: dict = {"input": 0, "output": 0}
 
+        # Load Orchestrator AGENTS.md
+        agents_path = agent_root / "agents" / "issue-fix" / "AGENTS.md"
+        self._agents_md = agents_path.read_text(encoding="utf-8") if agents_path.exists() else ""
+
+        # Init orchestrator tools context
+        init_orchestrator_tools({
+            "report_dir": self.report_dir,
+            "agent_root": agent_root,
+        })
+
     # ──────────────────────────────────────────
     # Public entry point
     # ──────────────────────────────────────────
 
     async def run(self, issue_id: str, issue_json: str, images: list | None = None) -> dict:
         print(f"\n{'═'*60}")
-        print(f"  🎯 Orchestrator: {issue_id}")
+        print(f"  🎯 [Orchestrator] Issue: {issue_id}")
         print(f"{'═'*60}")
 
+        # Create Orchestrator Agent session (stateful across all gates)
+        _, orch_session = await create_session(ORCHESTRATOR_TOOLS)
+
+        # Prime Orchestrator with AGENTS.md + issue context
+        if self._agents_md:
+            init_prompt = (
+                f"{self._agents_md}\n\n"
+                f"---\n\n"
+                f"You are now managing issue **{issue_id}**.\n"
+                f"You will be asked to make gate judgments as the fix progresses.\n"
+                f"Reports are in: {self.report_dir / issue_id}/\n"
+            )
+            await run_in_session(orch_session, "orchestrate-init", init_prompt, max_tool_calls=0)
+
         # ── Analyze phase（Progressive Disclosure）──
-        analyze_status = await self._run_analyze(issue_id, issue_json, images)
+        analyze_status = await self._run_analyze(issue_id, issue_json, images, orch_session)
 
         if analyze_status == "already_fixed":
             print("\n  ✅ Already fixed — no further action.")
-            print(f"     Report: {self.report_dir / issue_id / 'analyze.md'}")
+            self._accumulate(orch_session)
             return {**self._tokens, "outcome": "skipped"}
 
         if analyze_status != "confirmed":
             print(f"\n  ⏸  Analyze ended with status={analyze_status}")
-            print(f"     Check: {self.report_dir / issue_id / 'analyze.md'}")
+            self._accumulate(orch_session)
             return {**self._tokens, "outcome": "skipped"}
 
-        # ── Spawn gate：validate analyze.md before implement ──
-        gate = self._validate_analyze(issue_id)
-        self._log_gate("analyze→implement", gate)
-        if not gate.passed:
+        # ── Gate 2: Orchestrator validates analyze.md quality ──
+        quality_judgment = await self._judge(
+            orch_session, "analyze-quality",
+            f"## Gate 2: Analyze Quality\n\n"
+            f"Issue: {issue_id}\n\n"
+            f"Use `read_artifact` to read `analyze.md`, then judge its quality.\n"
+            f"End your response with PROCEED, RETRY, or NEED_MORE_INFO.",
+        )
+        self._log_gate("analyze→implement", GateResult(
+            passed="PROCEED" in quality_judgment.upper(),
+            reason=quality_judgment[:200],
+        ))
+        if "PROCEED" not in quality_judgment.upper():
             print("  ⏸  Implement not spawned.")
+            self._accumulate(orch_session)
             return {**self._tokens, "outcome": "skipped"}
 
         # ── Implement + Test loop ──
         for retry in range(MAX_IMPLEMENT_RETRIES + 1):
             await self._run_implement(issue_id, retry=retry)
 
-            gate = self._validate_implement(issue_id)
-            self._log_gate("implement→test", gate)
+            # Gate 3: Orchestrator validates implement alignment
+            test_report_name = "test.md" if retry == 0 else f"test-retry-{retry}.md"
+            align_judgment = await self._judge(
+                orch_session, f"implement-align-{retry}",
+                f"## Gate 3: Implement Alignment\n\n"
+                f"Issue: {issue_id}, attempt {retry + 1}\n\n"
+                f"Use `read_artifact` to read `analyze.md` and `implement.md`, "
+                f"then judge alignment.\n"
+                f"End your response with PROCEED, RETRY, or CHECKPOINT.",
+            )
+            self._log_gate("implement→test", GateResult(
+                passed="PROCEED" in align_judgment.upper(),
+                reason=align_judgment[:200],
+            ))
 
             verdict = await self._run_test(issue_id, retry=retry)
             print(f"\n  ⚖️  Verdict: {verdict}")
 
             if verdict == "PASS":
                 print(f"\n  ✅ Fix complete! Reports: {self.report_dir / issue_id}/")
+                self._accumulate(orch_session)
                 return {**self._tokens, "outcome": "fixed"}
 
             if retry < MAX_IMPLEMENT_RETRIES:
+                # Gate 4: Orchestrator decides if retry is worthwhile
+                retry_judgment = await self._judge(
+                    orch_session, f"retry-decision-{retry}",
+                    f"## Gate 4: Test Retry Decision\n\n"
+                    f"Issue: {issue_id}, retry {retry + 1}/{MAX_IMPLEMENT_RETRIES}\n\n"
+                    f"Use `read_artifact` to read `{test_report_name}`, then decide.\n"
+                    f"End your response with RETRY or NEED_MORE_INFO.",
+                )
+                if "RETRY" not in retry_judgment.upper():
+                    print(f"\n  ⏸  Orchestrator: stop retrying — {retry_judgment[:100]}")
+                    break
                 print(f"\n  🔄 FAIL → re-implement ({retry + 1}/{MAX_IMPLEMENT_RETRIES})")
             else:
                 print(f"\n  💀 Max retries ({MAX_IMPLEMENT_RETRIES}) reached.")
 
+        self._accumulate(orch_session)
         return {**self._tokens, "outcome": "failed"}
 
     # ──────────────────────────────────────────
-    # Analyze — Progressive Disclosure
+    # Orchestrator judgment helper
     # ──────────────────────────────────────────
 
-    async def _run_analyze(self, issue_id: str, issue_json: str, images: list | None) -> str:
+    async def _judge(self, orch_session, gate_name: str, prompt: str) -> str:
+        """Ask the Orchestrator LLM to make a semantic gate judgment."""
+        return await run_in_session(
+            orch_session, f"orchestrate-{gate_name}", prompt, max_tool_calls=3,
+        )
+
+    # ──────────────────────────────────────────
+    # Analyze — Progressive Disclosure + Orchestrator gates
+    # ──────────────────────────────────────────
+
+    async def _run_analyze(
+        self,
+        issue_id: str,
+        issue_json: str,
+        images: list | None,
+        orch_session,
+    ) -> str:
         print(f"\n{'─'*60}")
         print("  [Orchestrator] Phase: analyze (Gated Reveal)")
         print(f"{'─'*60}")
@@ -119,33 +202,55 @@ class BugfixOrchestrator:
         )
 
         # ── Gate REPRODUCE: Step 0 全部（能力前置 + 瀏覽器重現）──
-        gate = GateResult(passed=False, reason="not started")
         for attempt in range(MAX_GATE_RETRIES + 1):
             if attempt == 0:
                 prompt = self._build_reproduce_prompt(issue_id, issue_json, screenshot_dir)
                 response = await run_in_session(
                     session, "analyze-reproduce", prompt,
-                    max_tool_calls=35,
-                    images=images,
+                    max_tool_calls=35, images=images,
                 )
             else:
-                print(f"\n  ⚠️  Reproduce gate failed ({gate.reason}), retry {attempt}/{MAX_GATE_RETRIES}")
                 retry_msg = (
-                    "Step 0 尚未完成（未找到 reproduction.png 或 reproduction-failed.png 截圖）。\n"
+                    "Step 0 尚未完成（Orchestrator 判定重現未完成）。\n"
                     "請繼續執行步驟 0.2–0.5：瀏覽器重現操作、截圖存入指定目錄。"
                 )
                 response = await run_in_session(
-                    session, "analyze-reproduce-retry", retry_msg,
+                    session, f"analyze-reproduce-retry-{attempt}", retry_msg,
                     max_tool_calls=35,
                 )
-            gate = self._validate_reproduce(response, screenshot_dir)
-            if gate.passed:
+
+            # Objective check first (no LLM needed for file existence)
+            repro_ok = (screenshot_dir / "reproduction.png").exists()
+            repro_fail_ok = (screenshot_dir / "reproduction-failed.png").exists()
+
+            if repro_ok or repro_fail_ok:
+                names = ", ".join(
+                    f for f in ["reproduction.png", "reproduction-failed.png"]
+                    if (screenshot_dir / f).exists()
+                )
+                print(f"\n  ✅ Reproduce gate: screenshot found ({names})")
                 break
 
-        if not gate.passed:
-            print(f"\n  ⏸  Reproduce gate: Step 0 未完成，中止分析（{gate.reason}）")
-            self._accumulate(session)
-            return "need_more_info"
+            # Semantic judgment: ask Orchestrator LLM
+            judgment = await self._judge(
+                orch_session, f"reproduce-gate-{attempt}",
+                f"## Gate 1: REPRODUCE\n\n"
+                f"Issue: {issue_id}, attempt {attempt + 1}/{MAX_GATE_RETRIES + 1}\n"
+                f"reproduction.png: {'EXISTS' if repro_ok else 'not found'}\n"
+                f"reproduction-failed.png: {'EXISTS' if repro_fail_ok else 'not found'}\n\n"
+                f"Analyzer Step 0 response (last 1500 chars):\n```\n{response[-1500:]}\n```\n\n"
+                f"Did Step 0 complete with concrete observations?\n"
+                f"End your response with PROCEED, RETRY, or NEED_MORE_INFO.",
+            )
+
+            if "PROCEED" in judgment.upper():
+                print(f"\n  ✅ Reproduce gate: Orchestrator — PROCEED")
+                break
+            if "NEED_MORE_INFO" in judgment.upper() or attempt >= MAX_GATE_RETRIES:
+                print(f"\n  ⏸  Reproduce gate: Orchestrator — {judgment[:100]}")
+                self._accumulate(session)
+                return "need_more_info"
+            print(f"\n  🔄 Reproduce gate: Orchestrator — RETRY ({attempt + 1}/{MAX_GATE_RETRIES})")
 
         # ── Gate RCA: Steps 1–5 + 報告 ──
         report_path = self.report_dir / issue_id / "analyze.md"
@@ -153,17 +258,29 @@ class BugfixOrchestrator:
 
         rca_response = ""
         for attempt in range(2):
-            prompt = self._build_rca_prompt(issue_id, report_path)
-            rca_response = await run_in_session(session, "analyze-rca", prompt, max_tool_calls=40)
+            rca_prompt = self._build_rca_prompt(issue_id, report_path)
+            rca_response = await run_in_session(
+                session, "analyze-rca", rca_prompt, max_tool_calls=40,
+            )
             if report_path.exists():
                 break
             if attempt == 0:
                 print("\n  ⚠️  analyze.md not written — retrying RCA gate...")
 
-        # 0 tool calls + 短回應 = AI 可能依賴記憶幻覺分析，強制要求讀程式碼重來
-        # Copilot SDK 內建工具不 emit tool_start，故需搭配回應長度排除正常情況
-        if getattr(session, 'last_turn_tool_calls', -1) == 0 and len(rca_response.strip()) < 500:
-            print("\n  ⚠️  RCA gate: 0 tool calls + short response — AI may have hallucinated. Retrying with explicit tool instruction...")
+        # Orchestrator judges RCA grounding (replaces Python 0-tool-call heuristic)
+        last_tool_calls = getattr(session, "last_turn_tool_calls", -1)
+        grounding_judgment = await self._judge(
+            orch_session, "rca-grounding",
+            f"## RCA Grounding Check\n\n"
+            f"Issue: {issue_id}\n"
+            f"Tool calls in last RCA turn: {last_tool_calls}\n"
+            f"RCA response length: {len(rca_response)} chars\n\n"
+            f"Was the RCA grounded (agent actually read code files)?\n"
+            f"End your response with GROUNDED or NEEDS_REGROUNDING.",
+        )
+
+        if "NEEDS_REGROUNDING" in grounding_judgment.upper():
+            print("\n  ⚠️  [Orchestrator] RCA not grounded — re-running with explicit tool instruction...")
             grounded_prompt = (
                 "你剛才的 RCA 分析沒有呼叫任何工具。\n"
                 "**必須先使用 search_files / read_file 工具實際讀取相關程式碼**，再覆蓋寫入 analyze.md。\n"
@@ -295,85 +412,7 @@ class BugfixOrchestrator:
         )
 
     # ──────────────────────────────────────────
-    # Gate validators (pure Python)
-    # ──────────────────────────────────────────
-
-    @staticmethod
-    def _validate_reproduce(response: str, screenshot_dir: Path) -> GateResult:
-        reproduction_screenshot = (
-            (screenshot_dir / "reproduction.png").exists() or
-            (screenshot_dir / "reproduction-failed.png").exists()
-        )
-        if reproduction_screenshot:
-            names = [f for f in ["reproduction.png", "reproduction-failed.png"]
-                     if (screenshot_dir / f).exists()]
-            return GateResult(passed=True, reason=f"reproduction screenshot: {', '.join(names)}")
-
-        completion_keywords = [
-            "重現成功", "重現失敗", "already_fixed",
-            "Step 0 完成", "Step 0 重現總結",
-            "reproduction successful", "reproduction failed",
-            "need_more_info",
-        ]
-        if any(kw.lower() in response.lower() for kw in completion_keywords):
-            return GateResult(passed=True, reason="Step 0 completion marker found in response")
-
-        return GateResult(passed=False, reason="reproduction.png not found and no Step 0 completion marker")
-
-    # ──────────────────────────────────────────
-    # Spawn gate validators (artifact semantic)
-    # ──────────────────────────────────────────
-
-    def _validate_analyze(self, issue_id: str) -> GateResult:
-        path = self.report_dir / issue_id / "analyze.md"
-        if not path.exists():
-            return GateResult(passed=False, reason="analyze.md not found")
-
-        text = path.read_text(encoding="utf-8")
-
-        if not re.search(r'\*\*Status\*\*[:\s]+confirmed', text, re.IGNORECASE):
-            return GateResult(passed=False, reason="status != confirmed")
-
-        confidence_match = re.search(r'\*\*Confidence Score\*\*[:\s]+([\d.]+)', text)
-        if confidence_match:
-            try:
-                if float(confidence_match.group(1)) < 0.6:
-                    return GateResult(passed=False, reason=f"confidence {confidence_match.group(1)} < 0.6")
-            except ValueError:
-                pass
-
-        if not re.search(r'\*\*Root Cause File\*\*[:\s]+\S', text):
-            return GateResult(passed=False, reason="root_cause_file missing or empty")
-
-        return GateResult(passed=True, reason="status=confirmed, confidence≥0.6, root_cause_file present")
-
-    def _validate_implement(self, issue_id: str) -> GateResult:
-        impl_path = self.report_dir / issue_id / "implement.md"
-        if not impl_path.exists():
-            return GateResult(passed=False, reason="implement.md not found")
-
-        analyze_path = self.report_dir / issue_id / "analyze.md"
-        if not analyze_path.exists():
-            return GateResult(passed=True, reason="no analyze.md to cross-check — proceeding")
-
-        analyze_text = analyze_path.read_text(encoding="utf-8")
-        impl_text = impl_path.read_text(encoding="utf-8")
-
-        m = re.search(r'\*\*Root Cause File\*\*[:\s]+(.+)', analyze_text)
-        if not m:
-            return GateResult(passed=True, reason="no root_cause_file to cross-check — proceeding")
-
-        root_file = Path(m.group(1).strip()).name
-        if root_file and root_file not in impl_text:
-            return GateResult(
-                passed=False,
-                reason=f"root_cause_file '{root_file}' not referenced in implement.md",
-            )
-
-        return GateResult(passed=True, reason=f"root_cause_file '{root_file}' referenced in implement.md")
-
-    # ──────────────────────────────────────────
-    # Report readers
+    # Report readers (structured Python checks)
     # ──────────────────────────────────────────
 
     def _read_analyze_status(self, issue_id: str) -> str:
@@ -406,8 +445,7 @@ class BugfixOrchestrator:
     def _parse_gates(skill_body: str) -> dict:
         """
         Split SKILL.md into sections by <!-- GATE:X --> markers.
-        Returns {"preamble": str, "A": str, "B": str, "C": str}.
-        preamble = everything before the first GATE marker.
+        Returns {"preamble": str, "REPRODUCE": str, "RCA": str}.
         """
         parts = skill_body.split("<!-- GATE:")
         preamble = parts[0]
@@ -423,11 +461,12 @@ class BugfixOrchestrator:
     # Helpers
     # ──────────────────────────────────────────
 
-    def _accumulate(self, session) -> None:
-        self._tokens["input"] += session.token_usage.get("input", 0)
-        self._tokens["output"] += session.token_usage.get("output", 0)
+    def _accumulate(self, *sessions) -> None:
+        for session in sessions:
+            self._tokens["input"] += session.token_usage.get("input", 0)
+            self._tokens["output"] += session.token_usage.get("output", 0)
 
     @staticmethod
     def _log_gate(label: str, gate: GateResult) -> None:
         icon = "✅" if gate.passed else "❌"
-        print(f"\n  🚦 Spawn gate ({label}): {icon} — {gate.reason}")
+        print(f"\n  🚦 [Orchestrator] Gate ({label}): {icon} — {gate.reason}")

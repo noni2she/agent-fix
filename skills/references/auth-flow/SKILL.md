@@ -1,142 +1,83 @@
 ---
 name: auth-flow
-description: Define the authentication flow for different types of projects, including web apps, mobile apps, and APIs. This skill covers best practices for secure authentication, token management, and session handling with chrome-devtools-mcp.
+description: Generic authentication flow for frontend web apps. Load this skill when bugfix-analyze Step 0.1 detects an unauthenticated state.
 user-invocable: false
 disable-model-invocation: false
 ---
 
-# Authentication Flow Skill
+# Authentication Flow
 
-## Frontend Web App Authentication Flow
-
-> This flow is designed for **chrome-devtools-mcp**, which controls a persistent Chrome browser instance. Unlike Playwright, chrome-devtools-mcp does NOT have a `storageState` API — authentication persists automatically via Chrome's profile storage as long as you use the same browser instance.
+> This skill describes login steps in semantic, tool-agnostic terms.
+> Map each step to the appropriate tool available in your current session
+> (chrome-devtools-mcp, Playwright MCP, etc.).
 
 ---
 
-## Step 0: Check Login State
+## Step 0: Check Current Login State
 
-Before attempting any login, navigate to the target app and check if already authenticated.
+Before attempting login, inspect the current page:
 
-```
-1. navigate_page → target app URL
-2. take_screenshot → inspect current state
-3. Check for login indicators:
-   - Redirected to /login, /signin, or /auth?
-   - Login form visible?
-   - User menu / avatar visible (= already logged in)?
-```
-
-If already logged in → **skip to reproduction steps**. No need to re-authenticate.
+1. Navigate to the target app homepage
+2. Observe the page:
+   - User menu / avatar / profile visible → **already logged in**, skip to reproduction steps
+   - Login button, login form, or redirect to a login page → **not logged in**, proceed to Step 1
 
 ---
 
 ## Step 1: Email / Phone + Password Login
 
-- Detect login form (full page or modal)
-- Check **Project Context** for supported login methods and test credentials
-- Fill in credentials using `fill` or `fill_form`
-- Submit form and wait for redirect
+Read test credentials from **Project Context** → `Auth Config`.
 
-```
-1. navigate_page → /login (or app URL that redirects to login)
-2. wait_for → login form selector
-3. fill → email/username field with test credential
-4. fill → password field with test credential
-5. click → submit button
-6. wait_for → post-login indicator (user menu selector, avatar, or URL pattern like '/home')
-   ⚠️ 不要在 click 後立即呼叫 take_screenshot — 頁面跳轉期間 take_screenshot 會等待頁面穩定，
-      可能觸發數十秒 timeout。必須先用 wait_for 確認跳轉完成後再截圖。
-7. take_screenshot → confirm login success
-```
+**Flow:**
+
+1. Reach the login entry point — this may be a dedicated route (`/login`), a modal triggered by a header button, or a multi-step form. Determine the correct path by reading the target project, do not assume a fixed route.
+2. Wait for the login form to appear (full-page or modal).
+3. Enter the username (email or phone number).
+4. Enter the password.
+5. Submit the form.
+6. **Wait for login to complete** — confirm a post-login indicator appears (user menu, avatar, dashboard, etc.) before taking any screenshot or continuing.
+   - ⚠️ Do not screenshot or navigate immediately after submitting. The page may still be in mid-redirect; acting before the redirect completes causes long waits or incorrect state capture.
+7. Confirm the current page shows an authenticated state.
 
 **If login fails:**
-- Check console errors with `list_console_messages`
-- Check network errors with `list_network_requests`
+- Check for console errors
+- Check for 4xx/5xx network requests
 - Verify credentials in Project Context are correct
 
 ---
 
-## Step 2: OAuth Login (Google, Facebook, Apple)
+## Step 2: OAuth Login (Google, Facebook, Apple, etc.)
 
-OAuth flows open a popup window. Use page switching tools to handle it.
+OAuth flows typically open a popup window:
 
-```
-1. navigate_page → app login page
-2. click → OAuth provider button (e.g. "Continue with Google")
-3. list_pages → find the new OAuth popup page
-4. select_page → switch to OAuth popup
-5. fill → OAuth email field
-6. click → Next
-7. fill → OAuth password field
-8. click → Sign in / Allow
-9. wait_for → popup to close (or redirect back to app)
-10. select_page → switch back to main app page
-11. wait_for → post-login element
-12. take_screenshot → confirm login success
-```
+1. Click the OAuth login button (e.g. "Continue with Google")
+2. Switch focus to the popup window
+3. Fill in OAuth credentials and complete authorization in the popup
+4. Wait for the popup to close and control to return to the main page
+5. Switch focus back to the main page
+6. Confirm authenticated state
 
 ---
 
-## Step 3: Auth State Persistence (chrome-devtools-mcp)
+## Step 3: Auth State Persistence
 
-### How it works
-
-chrome-devtools-mcp uses a **persistent Chrome profile** (not a new incognito session each time). This means:
-
-- **Cookies, localStorage, sessionStorage** are preserved across MCP sessions
-- Once logged in, the session remains until it expires or the server invalidates it
-- **No explicit save/load needed** — unlike Playwright's `storageState`
-
-### Verifying persistence
-
-At the start of each analyze session:
-
-```
-1. navigate_page → app URL
-2. take_screenshot
-3. If user menu / avatar is visible → session still active, proceed
-4. If login page is shown → session expired, perform login again (Step 1 or 2)
-```
-
-### When sessions expire
-
-Some apps use short-lived JWTs or force logout after inactivity. If the session expires mid-analysis:
-
-```
-1. Detect redirect to login page (URL change or login form appearing)
-2. Perform login flow again (Step 1 or 2)
-3. navigate_page back to the page you were on
-4. Continue reproduction steps
-```
-
-### Cookie-based vs. Token-based apps
+chrome-devtools-mcp uses a **persistent Chrome profile** (not incognito). Cookies and localStorage survive across sessions — no explicit save/load needed. Run Step 0 at the start of each session to confirm state.
 
 | Auth type | Persistence | Notes |
-|-----------|------------|-------|
-| Cookie session | Automatic via Chrome profile | Most reliable |
-| localStorage JWT | Automatic via Chrome profile | Persists until cleared |
-| sessionStorage JWT | Lost when tab closes | Re-login needed per session |
-| In-memory token | Lost on refresh | Re-login needed after navigate |
+|-----------|-------------|-------|
+| Cookie session | ✅ Automatic | Most reliable |
+| localStorage JWT | ✅ Automatic | Survives until storage is cleared |
+| sessionStorage JWT | ❌ Lost on tab close | Keep the same tab open throughout |
+| In-memory token | ❌ Lost on refresh | Avoid unnecessary navigations |
 
-If the app uses sessionStorage or in-memory tokens, keep the same tab open throughout the session — avoid closing or refreshing the page unnecessarily.
-
----
-
-## Step 4: Multi-tenant / Role-based Login
-
-For apps with multiple user roles (admin, user, viewer):
-
-- Check **Project Context** for role-specific test credentials
-- Log in as the role most relevant to the bug being reproduced
-- If bug affects multiple roles, reproduce with each role separately
+If the app uses sessionStorage or in-memory tokens, keep the same tab open for the entire session.
 
 ---
 
 ## Credentials
 
-Test credentials are defined in **Project Context** under the `credentials` or `test_accounts` section. Never hardcode credentials in this skill. Always read from Project Context.
+Always read test credentials from **Project Context** → `Auth Config`. Never hardcode or guess.
 
-If credentials are not found in Project Context:
-
-1. Check `.env` file in project root for `TEST_EMAIL`, `TEST_PASSWORD`, etc.
-2. Ask the user to provide credentials — **do not guess or fabricate**
+If credentials are absent from Project Context:
+1. Check the target project root `.env` for `TEST_EMAIL`, `TEST_PASSWORD`, etc.
+2. If still not found → mark status as `need_more_info` and ask the user to provide credentials.

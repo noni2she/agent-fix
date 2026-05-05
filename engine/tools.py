@@ -34,6 +34,26 @@ _current_project_key: Optional[str] = None  # 由 workflow 初始化時設定，
 # agent 根目錄（tools.py 位於 engine/，往上一層是 agent root）
 _AGENT_ROOT = Path(__file__).parent.parent.resolve()
 
+# Orchestrator tools context（由 BugfixOrchestrator.__init__ 設定）
+_orchestrator_context: Optional[dict] = None
+
+
+def init_orchestrator_tools(context: dict):
+    """
+    初始化 Orchestrator 工具 context（由 BugfixOrchestrator.__init__ 呼叫）。
+
+    Args:
+        context: dict with keys: report_dir (Path), agent_root (Path)
+    """
+    global _orchestrator_context
+    _orchestrator_context = context
+
+
+def _get_orchestrator_context() -> dict:
+    if _orchestrator_context is None:
+        raise RuntimeError("Orchestrator tools not initialized. Call init_orchestrator_tools() first.")
+    return _orchestrator_context
+
 
 def init_tools(config: ProjectConfig):
     """
@@ -444,6 +464,47 @@ def write_file(path: str, content: str) -> str:
 
 
 # ==========================================
+# Orchestrator 工具（BugfixOrchestrator LLM Agent 使用）
+# ==========================================
+
+def read_artifact(issue_id: str, artifact_name: str) -> str:
+    """
+    讀取指定 issue 的 phase 報告（analyze.md、implement.md、test.md 等）。
+
+    Args:
+        issue_id:      Issue 編號（如 CHATAPP-5389）
+        artifact_name: 報告檔名（如 analyze.md、implement.md、test.md、test-retry-1.md）
+    """
+    ctx = _get_orchestrator_context()
+    report_dir: Path = ctx["report_dir"]
+    path = report_dir / issue_id / artifact_name
+    if not path.exists():
+        return f"(artifact not found: {artifact_name} for issue {issue_id})"
+    return path.read_text(encoding="utf-8")
+
+
+def checkpoint(issue_id: str, message: str) -> str:
+    """
+    記錄 checkpoint，表示需要人類介入才能繼續。
+
+    Args:
+        issue_id: Issue 編號
+        message:  說明需要人類處理的原因
+    """
+    ctx = _get_orchestrator_context()
+    agent_root: Path = ctx["agent_root"]
+    checkpoint_dir = agent_root / "issues" / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = checkpoint_dir / f"{issue_id}.md"
+    checkpoint_path.write_text(
+        f"# Checkpoint: {issue_id}\n\n{message}\n",
+        encoding="utf-8",
+    )
+    print(f"\n  🚧 [Orchestrator] Checkpoint saved: {checkpoint_path}")
+    return f"✅ Checkpoint saved for {issue_id}. Human input required before proceeding."
+
+
+# ==========================================
 # 工具映射表
 # ==========================================
 
@@ -453,6 +514,9 @@ TOOL_MAP = {
     "run_eslint": run_eslint,
     "run_behavior_validation": run_behavior_validation,
     "record_tech_debt": record_tech_debt,
+    # Orchestrator 工具
+    "read_artifact": read_artifact,
+    "checkpoint": checkpoint,
     # 檔案系統工具（Claude/OpenAI adapter 用）
     "read_file": read_file,
     "list_directory": list_directory,
