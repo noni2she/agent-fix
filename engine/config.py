@@ -120,6 +120,27 @@ class IssueSourceConfig(BaseModel):
     )
 
 
+class ProjectAuthConfig(BaseModel):
+    """通用認證配置（供所有工具使用，包括 chrome-devtools-mcp analyze agent）
+
+    這裡的帳密是「全域」設定，任何需要登入的工具都能引用。
+    Playwright 的 AuthConfig 在 behavior_validation.auth 另行設定，
+    若未指定 username_env / password_env 則自動繼承此處的值。
+    """
+    username_env: str = Field(
+        default="TEST_USERNAME",
+        description="存放帳號的環境變數名稱（從 .env 讀取）"
+    )
+    password_env: str = Field(
+        default="TEST_PASSWORD",
+        description="存放密碼的環境變數名稱（從 .env 讀取）"
+    )
+    login_url: str = Field(
+        default="/",
+        description="登入起始頁面路徑（供 agent 自動登入用，如 '/' 或 '/login'）"
+    )
+
+
 class AuthConfig(BaseModel):
     """Playwright 登入認證配置（storageState 方案）
 
@@ -177,13 +198,13 @@ class AuthConfig(BaseModel):
         default=24,
         description="storageState 有效時數，超過後自動重新登入。預設 24h。"
     )
-    username_env: str = Field(
-        default="TEST_USERNAME",
-        description="存放帳號的環境變數名稱（從 .env 讀取）"
+    username_env: Optional[str] = Field(
+        default=None,
+        description="存放帳號的環境變數名稱（選填，不填則繼承 top-level auth.username_env）"
     )
-    password_env: str = Field(
-        default="TEST_PASSWORD",
-        description="存放密碼的環境變數名稱（從 .env 讀取）"
+    password_env: Optional[str] = Field(
+        default=None,
+        description="存放密碼的環境變數名稱（選填，不填則繼承 top-level auth.password_env）"
     )
     pre_fill_actions: List[Dict[str, str]] = Field(
         default=[],
@@ -317,6 +338,18 @@ class ProjectConfig(BaseModel):
     skills: SkillsConfig = Field(
         default_factory=SkillsConfig,
         description="Skills 配置"
+    )
+    auth: Optional[ProjectAuthConfig] = Field(
+        default=None,
+        description=(
+            "通用認證配置（供所有工具使用，包括 chrome-devtools-mcp analyze agent）。\n"
+            "設定後 agent 在 Step 0 會自動執行登入，Playwright test 也會繼承帳密設定。\n"
+            "範例：\n"
+            "  auth:\n"
+            "    username_env: MY_TEST_USERNAME\n"
+            "    password_env: MY_TEST_PASSWORD\n"
+            "    login_url: /"
+        )
     )
     behavior_validation: BehaviorValidationConfig = Field(
         default_factory=BehaviorValidationConfig,

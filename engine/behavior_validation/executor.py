@@ -68,7 +68,8 @@ class BehaviorValidator:
         dev_command: Optional[list[str]] = None,
         screenshot_dir: Optional[Path] = None,
         channel: Optional[str] = None,
-        auth_config=None,  # Optional[AuthConfig]，避免 circular import 不強型別
+        auth_config=None,          # Optional[AuthConfig]，避免 circular import 不強型別
+        project_auth_config=None,  # Optional[ProjectAuthConfig]，top-level auth fallback
     ):
         self.project_root = project_root
         self.port = port
@@ -77,6 +78,7 @@ class BehaviorValidator:
         self.dev_command = dev_command
         self.channel = channel  # "chrome" → 系統 Chrome；None → Playwright Chromium（自動安裝）
         self.auth_config = auth_config
+        self.project_auth_config = project_auth_config
         self.base_url = f"http://localhost:{port}"
         self.screenshot_dir = screenshot_dir or (_AGENT_ROOT / "issues" / "screenshots")
 
@@ -178,12 +180,15 @@ class BehaviorValidator:
         else:
             print(f"  🔐 未找到 auth state，執行初次登入流程")
 
-        # 從環境變數讀取帳密
-        username = os.getenv(auth.username_env)
-        password = os.getenv(auth.password_env)
+        # 從環境變數讀取帳密：優先用 behavior_validation.auth 指定值，否則繼承 top-level auth
+        _proj = self.project_auth_config
+        _username_env = auth.username_env or (_proj.username_env if _proj else "TEST_USERNAME")
+        _password_env = auth.password_env or (_proj.password_env if _proj else "TEST_PASSWORD")
+        username = os.getenv(_username_env)
+        password = os.getenv(_password_env)
 
         if not username or not password:
-            print(f"  ⚠️  缺少環境變數 {auth.username_env} / {auth.password_env}，跳過 auth（測試可能因未登入而失敗）")
+            print(f"  ⚠️  缺少環境變數 {_username_env} / {_password_env}，跳過 auth（測試可能因未登入而失敗）")
             return None
 
         # 執行 login flow

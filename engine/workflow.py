@@ -170,6 +170,23 @@ Rules:
 - Design assertions based on `reproduction_steps` and expected fix outcome
 """
 
+    # Auth Config 注入（若有設定 top-level auth）
+    auth_section = ""
+    if cfg.auth:
+        import os as _os
+        _username = _os.getenv(cfg.auth.username_env, "")
+        _password = _os.getenv(cfg.auth.password_env, "")
+        _login_url = f"http://localhost:{dev_port}{cfg.auth.login_url}"
+        auth_section = f"""
+### Auth Config
+
+此專案需要登入。在 Step 0 中若發現未登入，請參考 `auth-flow` skill 執行登入流程。
+
+- Login URL: {_login_url}
+- Username: `{_username or f"(env: {cfg.auth.username_env} — 未設定，請在 .env 填入)"}`
+- Password: `{_password or f"(env: {cfg.auth.password_env} — 未設定，請在 .env 填入)"}`
+"""
+
     return f"""> 🌐 語言指令：請以 **{cfg.response_language}** 回覆所有回應（分析報告、說明、摘要），程式碼與指令維持原文。
 
 ## Project Context
@@ -206,7 +223,7 @@ Dev server URL: http://localhost:{dev_port}
 - Shared packages: {', '.join(cfg.paths.shared_packages) or 'none'}
 - Shared components: {', '.join(cfg.paths.shared_components) or 'none'}
 - Isolated modules: {', '.join(cfg.paths.isolated_modules) or 'none'}
-{f'- Domain logic: {chr(44).join(cfg.paths.domain_logic)}' if cfg.paths.domain_logic else ''}{skills_section}{bv_section}
+{f'- Domain logic: {chr(44).join(cfg.paths.domain_logic)}' if cfg.paths.domain_logic else ''}{auth_section}{skills_section}{bv_section}
 ---
 """
 

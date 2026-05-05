@@ -227,6 +227,7 @@ def run_behavior_validation(scenario_json: str) -> str:
                 channel=bv_config.channel,
                 screenshot_dir=screenshot_dir,
                 auth_config=bv_config.auth,
+                project_auth_config=_project_config.auth,
             )
             report = loop.run_until_complete(
                 validator.validate(issue_id, dynamic_scenario=scenario_data)

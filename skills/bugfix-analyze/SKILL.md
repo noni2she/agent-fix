@@ -56,7 +56,22 @@ Issue 可能為兩種格式：
 - 若找到對應工具 → 記下工具名稱，繼續
 - 若找不到 → 將此步驟標記為 ⚠️ high-risk，到達該步驟時若失敗立即觸發 Checkpoint，**不得靜默跳過、不得改走 fallback**
 
-#### 0.1 提取驗證依據
+#### 0.1 登入確認（若 Project Context 有 Auth Config）
+
+若 **Project Context** 定義了 `Auth Config`，在任何瀏覽器操作前先確認登入狀態：
+
+1. `navigate_page` → Auth Config 的 `Login URL`
+2. `take_screenshot` → 觀察目前頁面
+3. 判斷登入狀態：
+   - 看到使用者選單 / 頭像 / 個人資訊 → **已登入**，繼續 Step 0.2
+   - 看到登入表單 / 被導向登入頁 → **未登入**，執行下一步
+4. 若未登入：載入並按照 `auth-flow` skill 執行登入
+   - skill 路徑：Skills Directories 下的 `auth-flow/SKILL.md`
+   - 使用 Project Context 中 `Auth Config` 的 Username / Password 填寫登入表單
+
+> ⚠️ 若 Project Context 沒有 `Auth Config` 區段，跳過此步驟直接進入 0.2。
+
+#### 0.2 提取驗證依據
 
 從 issue 中提取重現所需資訊：
 
@@ -65,7 +80,7 @@ Issue 可能為兩種格式：
 - `module` — 問題所在模組
 - `comments` — **若 issue 來源是 Jira/Issue Tracker，需檢查 comments**，常包含補充重現條件、環境資訊、reporter 後續發現
 
-#### 0.2 瀏覽器重現（所有問題類型的預設路徑）
+#### 0.3 瀏覽器重現（所有問題類型的預設路徑）
 
 **所有 issue 類型（互動類、樣式類、邏輯類）一律先走瀏覽器重現。** 邏輯類雖然根因在程式碼，但通常會在瀏覽器顯示為 console error / network 4xx-5xx / UI 異常，瀏覽器仍是最直接的觀察現場。
 
@@ -74,7 +89,7 @@ Issue 可能為兩種格式：
 使用 chrome-devtools MCP 工具，依照 `reproduction_steps` 逐步操作：
 
 1. 確認 dev server 運行中：`curl -s http://localhost:<port> > /dev/null || echo "Dev server not running"`
-2. `navigate_page` 先導回 **專案首頁**（`http://localhost:<port>/`），確保每個 issue 從同一個乾淨狀態開始
+2. `navigate_page` 先導回 **專案首頁**（`http://localhost:<port>/`），確保每個 issue 從同一個乾淨狀態開始（**若 Step 0.1 已登入，此步導航後確認仍保持登入狀態**）
 3. 依照 issue 的進入點，`navigate_page` 打開問題頁面
 4. 依照 `reproduction_steps` 逐步操作（`click` / `fill` / `press_key` / `navigate_page`）
 5. **確認 `actual` 描述的錯誤行為真的出現** → 這是此步驟的核心目標
@@ -85,7 +100,7 @@ Issue 可能為兩種格式：
 
 **重現成功的標準**：操作完 `reproduction_steps` 後，觀察到的行為與 `actual` 描述一致（樣式類則為視覺呈現與 `actual` 一致）。
 
-#### 0.2a 重現需要上傳外部檔案（test fixture）
+#### 0.3a 重現需要上傳外部檔案（test fixture）
 
 當 `reproduction_steps` 中包含「上傳影片 / 圖片 / 文件」等操作，且需要實際檔案才能繼續時，依序執行：
 
@@ -133,7 +148,7 @@ Issue 可能為兩種格式：
 
 > ⚠️ 不要嘗試用 ffmpeg 或其他工具自行生成測試媒體檔案。
 
-#### 0.3 重現失敗 fallback（靜態觀察）
+#### 0.4 重現失敗 fallback（靜態觀察）
 
 當瀏覽器無法重現時——常見原因：未登入 / 權限不足 / 缺少測試資料 / 環境異常 / 頁面跳轉錯誤——執行以下記錄後退回靜態觀察：
 
@@ -145,7 +160,7 @@ Issue 可能為兩種格式：
 
 > 純邏輯問題（無 UI 出口、僅在 unit test 才能觀察）也走此路徑：記錄「無法在瀏覽器觀察」後進入 Step 1。
 
-#### 0.4 根據結果決定後續動作
+#### 0.5 根據結果決定後續動作
 
 | 結果 | 後續動作 | Status |
 |------|---------|--------|
