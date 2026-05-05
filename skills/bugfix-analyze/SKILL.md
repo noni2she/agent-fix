@@ -60,7 +60,9 @@ Issue 可能為兩種格式：
 
 若 **Project Context** 定義了 `Auth Config`，在任何瀏覽器操作前先確認登入狀態：
 
-1. `navigate_page` → `http://localhost:<port>/`（首頁）
+1. `list_pages` → 查看目前開啟的 tab 列表
+2. `select_page` → 選擇最適合的現有 tab（優先選已在目標 app URL 的 tab，其次選第一個）；**不要呼叫 `new_page`**
+3. `navigate_page` → `http://localhost:<port>/`（首頁）
 2. `take_screenshot` → 觀察目前頁面
 3. 判斷登入狀態：
    - 看到使用者選單 / 頭像 / 個人資訊 → **已登入**，跳到 Step 0.2
@@ -91,7 +93,8 @@ Issue 可能為兩種格式：
 使用 chrome-devtools MCP 工具，依照 `reproduction_steps` 逐步操作：
 
 1. 確認 dev server 運行中：`curl -s http://localhost:<port> > /dev/null || echo "Dev server not running"`
-2. `navigate_page` 先導回 **專案首頁**（`http://localhost:<port>/`），確保每個 issue 從同一個乾淨狀態開始（**若 Step 0.1 已登入，此步導航後確認仍保持登入狀態**）
+2. `list_pages` → 查看目前開啟的 tab；`select_page` → 選擇現有 tab（**不要呼叫 `new_page`，全程使用同一個 tab**）
+3. `navigate_page` 先導回 **專案首頁**（`http://localhost:<port>/`），確保每個 issue 從同一個乾淨狀態開始（**若 Step 0.1 已登入，此步導航後確認仍保持登入狀態**）
 3. 依照 issue 的進入點，`navigate_page` 打開問題頁面
 4. 依照 `reproduction_steps` 逐步操作（`click` / `fill` / `press_key` / `navigate_page`）
 5. **確認 `actual` 描述的錯誤行為真的出現** → 這是此步驟的核心目標
