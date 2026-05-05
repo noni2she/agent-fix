@@ -334,7 +334,6 @@ async def execute_agent_session(
     session.last_turn_tool_calls = tool_call_count
 
     _print_execution_stats(agent_name, time.time() - start_time, tool_call_count, max_tool_calls, tool_usage_stats)
-    _print_response_preview(final_response)
 
     return final_response
 

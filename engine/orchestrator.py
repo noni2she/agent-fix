@@ -119,21 +119,33 @@ class BugfixOrchestrator:
         )
 
         # ── Gate REPRODUCE: Step 0 全部（能力前置 + 瀏覽器重現）──
+        gate = GateResult(passed=False, reason="not started")
         for attempt in range(MAX_GATE_RETRIES + 1):
-            prompt = self._build_reproduce_prompt(issue_id, issue_json, screenshot_dir)
-            response = await run_in_session(
-                session, "analyze-reproduce", prompt,
-                max_tool_calls=35,
-                images=images if attempt == 0 else None,
-            )
+            if attempt == 0:
+                prompt = self._build_reproduce_prompt(issue_id, issue_json, screenshot_dir)
+                response = await run_in_session(
+                    session, "analyze-reproduce", prompt,
+                    max_tool_calls=35,
+                    images=images,
+                )
+            else:
+                print(f"\n  ⚠️  Reproduce gate failed ({gate.reason}), retry {attempt}/{MAX_GATE_RETRIES}")
+                retry_msg = (
+                    "Step 0 尚未完成（未找到 reproduction.png 或 reproduction-failed.png 截圖）。\n"
+                    "請繼續執行步驟 0.2–0.5：瀏覽器重現操作、截圖存入指定目錄。"
+                )
+                response = await run_in_session(
+                    session, "analyze-reproduce-retry", retry_msg,
+                    max_tool_calls=35,
+                )
             gate = self._validate_reproduce(response, screenshot_dir)
             if gate.passed:
                 break
-            if attempt < MAX_GATE_RETRIES:
-                print(f"\n  ⚠️  Reproduce gate failed ({gate.reason}), retry {attempt + 1}/{MAX_GATE_RETRIES}")
-            else:
-                print(f"\n  ⚠️  Reproduce gate: {gate.reason} — proceeding to RCA with available observations")
-                break  # non-fatal; RCA gate decides final status via analyze.md
+
+        if not gate.passed:
+            print(f"\n  ⏸  Reproduce gate: Step 0 未完成，中止分析（{gate.reason}）")
+            self._accumulate(session)
+            return "need_more_info"
 
         # ── Gate RCA: Steps 1–5 + 報告 ──
         report_path = self.report_dir / issue_id / "analyze.md"
@@ -286,19 +298,25 @@ class BugfixOrchestrator:
 
     @staticmethod
     def _validate_reproduce(response: str, screenshot_dir: Path) -> GateResult:
-        has_screenshot = screenshot_dir.exists() and any(screenshot_dir.glob("*.png"))
-        if has_screenshot:
-            return GateResult(passed=True, reason=f"screenshot found in {screenshot_dir.name}/")
+        reproduction_screenshot = (
+            (screenshot_dir / "reproduction.png").exists() or
+            (screenshot_dir / "reproduction-failed.png").exists()
+        )
+        if reproduction_screenshot:
+            names = [f for f in ["reproduction.png", "reproduction-failed.png"]
+                     if (screenshot_dir / f).exists()]
+            return GateResult(passed=True, reason=f"reproduction screenshot: {', '.join(names)}")
 
-        observation_keywords = [
-            "重現成功", "reproduction", "actual", "observed", "screenshot",
-            "console error", "network", "4xx", "5xx", "already_fixed",
-            "重現失敗", "無法重現", "fallback",
+        completion_keywords = [
+            "重現成功", "重現失敗", "already_fixed",
+            "Step 0 完成", "Step 0 重現總結",
+            "reproduction successful", "reproduction failed",
+            "need_more_info",
         ]
-        if any(kw.lower() in response.lower() for kw in observation_keywords):
-            return GateResult(passed=True, reason="observation evidence found in response")
+        if any(kw.lower() in response.lower() for kw in completion_keywords):
+            return GateResult(passed=True, reason="Step 0 completion marker found in response")
 
-        return GateResult(passed=False, reason="no screenshot and no observation evidence")
+        return GateResult(passed=False, reason="reproduction.png not found and no Step 0 completion marker")
 
     # ──────────────────────────────────────────
     # Spawn gate validators (artifact semantic)
