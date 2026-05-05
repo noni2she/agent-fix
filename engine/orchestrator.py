@@ -109,7 +109,7 @@ class BugfixOrchestrator:
 
     async def _run_analyze(self, issue_id: str, issue_json: str, images: list | None) -> str:
         print(f"\n{'─'*60}")
-        print("  Phase: analyze (Gated Reveal)")
+        print("  [Orchestrator] Phase: analyze (Gated Reveal)")
         print(f"{'─'*60}")
 
         _, session = await create_session(ANALYZE_IMPLEMENT_TOOLS, mcp_manager=self.mcp_manager)
@@ -151,17 +151,19 @@ class BugfixOrchestrator:
         report_path = self.report_dir / issue_id / "analyze.md"
         report_path.parent.mkdir(parents=True, exist_ok=True)
 
+        rca_response = ""
         for attempt in range(2):
             prompt = self._build_rca_prompt(issue_id, report_path)
-            await run_in_session(session, "analyze-rca", prompt, max_tool_calls=40)
+            rca_response = await run_in_session(session, "analyze-rca", prompt, max_tool_calls=40)
             if report_path.exists():
                 break
             if attempt == 0:
                 print("\n  ⚠️  analyze.md not written — retrying RCA gate...")
 
-        # 0 tool calls = AI 可能依賴記憶幻覺分析，強制要求讀程式碼重來
-        if getattr(session, 'last_turn_tool_calls', -1) == 0:
-            print("\n  ⚠️  RCA gate: 0 tool calls — AI may have hallucinated. Retrying with explicit tool instruction...")
+        # 0 tool calls + 短回應 = AI 可能依賴記憶幻覺分析，強制要求讀程式碼重來
+        # Copilot SDK 內建工具不 emit tool_start，故需搭配回應長度排除正常情況
+        if getattr(session, 'last_turn_tool_calls', -1) == 0 and len(rca_response.strip()) < 500:
+            print("\n  ⚠️  RCA gate: 0 tool calls + short response — AI may have hallucinated. Retrying with explicit tool instruction...")
             grounded_prompt = (
                 "你剛才的 RCA 分析沒有呼叫任何工具。\n"
                 "**必須先使用 search_files / read_file 工具實際讀取相關程式碼**，再覆蓋寫入 analyze.md。\n"
@@ -184,7 +186,7 @@ class BugfixOrchestrator:
     async def _run_implement(self, issue_id: str, retry: int = 0) -> None:
         label = f"implement{f'-retry-{retry}' if retry > 0 else ''}"
         print(f"\n{'─'*60}")
-        print(f"  Phase: {label}")
+        print(f"  [Orchestrator] Phase: {label}")
         print(f"{'─'*60}")
 
         _, session = await create_session(ANALYZE_IMPLEMENT_TOOLS)
@@ -199,7 +201,7 @@ class BugfixOrchestrator:
     async def _run_test(self, issue_id: str, retry: int = 0) -> str:
         label = f"test{f'-retry-{retry}' if retry > 0 else ''}"
         print(f"\n{'─'*60}")
-        print(f"  Phase: {label}")
+        print(f"  [Orchestrator] Phase: {label}")
         print(f"{'─'*60}")
 
         _, session = await create_session(TEST_TOOLS)

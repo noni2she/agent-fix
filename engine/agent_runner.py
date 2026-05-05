@@ -131,7 +131,7 @@ async def run_in_session(
 ) -> str:
     """在指定 session 執行一個 skill phase"""
     print(f"\n{'='*60}")
-    print(f"🤖 [{phase_name.upper()}] 執行中...")
+    print(f"🤖 [Subagent: {phase_name}] 執行中...")
     print(f"{'='*60}")
 
     # 只顯示 --- 之後的任務段（略過 project context 與 skill body）
@@ -415,6 +415,8 @@ def _print_execution_stats(
         "⚪ 偏低"
     )
     print(f"     📈 使用率: {usage_rate:.0f}% ({status})")
+    if tool_call_count == 0:
+        print(f"     ℹ️  Copilot SDK 內建工具不計入此統計，實際工具呼叫數可能 > 0")
 
 
 def _print_response_preview(response: str):

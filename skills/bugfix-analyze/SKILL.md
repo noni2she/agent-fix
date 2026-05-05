@@ -72,6 +72,7 @@ Issue 可能為兩種格式：
    - 參考 auth-flow skill 的 **Step 1: Email / Phone + Password Login**
    - 登入流程（直接跳轉 URL、modal、multi-step）需自行讀目標專案判斷，不要假設固定路由
    - 使用 Project Context 中 `Auth Config` 的 Username / Password 填寫登入表單
+   - ⚠️ submit 後必須先 `wait_for` post-login 指示元素（user menu、avatar 等），確認跳轉完成後才能繼續操作。**不要在 click submit 後立即呼叫 `take_screenshot`**，頁面未穩定時截圖會造成長時間等待。
 
 > ⚠️ 若 Project Context 沒有 `Auth Config` 區段，跳過此步驟直接進入 0.2。
 

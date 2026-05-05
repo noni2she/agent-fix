@@ -43,7 +43,9 @@ If already logged in → **skip to reproduction steps**. No need to re-authentic
 3. fill → email/username field with test credential
 4. fill → password field with test credential
 5. click → submit button
-6. wait_for → post-login page element (user menu, dashboard, etc.)
+6. wait_for → post-login indicator (user menu selector, avatar, or URL pattern like '/home')
+   ⚠️ 不要在 click 後立即呼叫 take_screenshot — 頁面跳轉期間 take_screenshot 會等待頁面穩定，
+      可能觸發數十秒 timeout。必須先用 wait_for 確認跳轉完成後再截圖。
 7. take_screenshot → confirm login success
 ```
 
