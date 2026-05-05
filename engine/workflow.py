@@ -176,13 +176,12 @@ Rules:
         import os as _os
         _username = _os.getenv(cfg.auth.username_env, "")
         _password = _os.getenv(cfg.auth.password_env, "")
-        _login_url = f"http://localhost:{dev_port}{cfg.auth.login_url}"
         auth_section = f"""
 ### Auth Config
 
-此專案需要登入。在 Step 0 中若發現未登入，請參考 `auth-flow` skill 執行登入流程。
+此專案需要登入才能操作。在 Step 0.1 中確認登入狀態，若未登入請參考 `auth-flow` skill 執行登入。
+登入流程（URL、modal、multi-step）請自行讀目標專案程式碼判斷。
 
-- Login URL: {_login_url}
 - Username: `{_username or f"(env: {cfg.auth.username_env} — 未設定，請在 .env 填入)"}`
 - Password: `{_password or f"(env: {cfg.auth.password_env} — 未設定，請在 .env 填入)"}`
 """

@@ -60,13 +60,15 @@ Issue 可能為兩種格式：
 
 若 **Project Context** 定義了 `Auth Config`，在任何瀏覽器操作前先確認登入狀態：
 
-1. `navigate_page` → Auth Config 的 `Login URL`
+1. `navigate_page` → `http://localhost:<port>/`（首頁）
 2. `take_screenshot` → 觀察目前頁面
 3. 判斷登入狀態：
-   - 看到使用者選單 / 頭像 / 個人資訊 → **已登入**，繼續 Step 0.2
-   - 看到登入表單 / 被導向登入頁 → **未登入**，執行下一步
-4. 若未登入：載入並按照 `auth-flow` skill 執行登入
-   - skill 路徑：Skills Directories 下的 `auth-flow/SKILL.md`
+   - 看到使用者選單 / 頭像 / 個人資訊 → **已登入**，跳到 Step 0.2
+   - 看到登入入口（登入按鈕、表單、或被導向登入頁）→ **未登入**，執行下一步
+4. 若未登入：
+   - 載入 `auth-flow/SKILL.md`（位於 Skills Directories 下）
+   - 參考 auth-flow skill 的 **Step 1: Email / Phone + Password Login**
+   - 登入流程（直接跳轉 URL、modal、multi-step）需自行讀目標專案判斷，不要假設固定路由
    - 使用 Project Context 中 `Auth Config` 的 Username / Password 填寫登入表單
 
 > ⚠️ 若 Project Context 沒有 `Auth Config` 區段，跳過此步驟直接進入 0.2。

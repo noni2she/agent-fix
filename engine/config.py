@@ -123,7 +123,8 @@ class IssueSourceConfig(BaseModel):
 class ProjectAuthConfig(BaseModel):
     """通用認證配置（供所有工具使用，包括 chrome-devtools-mcp analyze agent）
 
-    這裡的帳密是「全域」設定，任何需要登入的工具都能引用。
+    只存帳密的環境變數名稱。登入流程（URL、modal、multi-step）
+    由 LLM 讀目標專案程式碼自行判斷，不在此硬編碼。
     Playwright 的 AuthConfig 在 behavior_validation.auth 另行設定，
     若未指定 username_env / password_env 則自動繼承此處的值。
     """
@@ -134,10 +135,6 @@ class ProjectAuthConfig(BaseModel):
     password_env: str = Field(
         default="TEST_PASSWORD",
         description="存放密碼的環境變數名稱（從 .env 讀取）"
-    )
-    login_url: str = Field(
-        default="/",
-        description="登入起始頁面路徑（供 agent 自動登入用，如 '/' 或 '/login'）"
     )
 
 
@@ -343,12 +340,12 @@ class ProjectConfig(BaseModel):
         default=None,
         description=(
             "通用認證配置（供所有工具使用，包括 chrome-devtools-mcp analyze agent）。\n"
-            "設定後 agent 在 Step 0 會自動執行登入，Playwright test 也會繼承帳密設定。\n"
+            "只需設定帳密環境變數名稱；登入流程由 LLM 讀目標專案自行判斷。\n"
+            "Playwright test 也會繼承此帳密（behavior_validation.auth 未指定時）。\n"
             "範例：\n"
             "  auth:\n"
             "    username_env: MY_TEST_USERNAME\n"
-            "    password_env: MY_TEST_PASSWORD\n"
-            "    login_url: /"
+            "    password_env: MY_TEST_PASSWORD"
         )
     )
     behavior_validation: BehaviorValidationConfig = Field(
