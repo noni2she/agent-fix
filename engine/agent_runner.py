@@ -330,6 +330,9 @@ async def execute_agent_session(
     final_response = "".join(response_parts)
     active = False  # noqa: F841
 
+    # 供 Orchestrator 讀取（0 tool calls = 可能是幻覺輸出）
+    session.last_turn_tool_calls = tool_call_count
+
     _print_execution_stats(agent_name, time.time() - start_time, tool_call_count, max_tool_calls, tool_usage_stats)
     _print_response_preview(final_response)
 

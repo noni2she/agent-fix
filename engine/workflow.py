@@ -228,9 +228,6 @@ def read_analyze_status(issue_id: str, report_dir: Path) -> str:
         return "already_fixed"
     if re.search(r'\*\*Status\*\*[:\s]+confirmed', text, re.IGNORECASE):
         return "confirmed"
-    if re.search(r'\bconfirmed\b', text, re.IGNORECASE) and \
-       not re.search(r'need_more_info', text, re.IGNORECASE):
-        return "confirmed"
     return "need_more_info"
 
 
@@ -383,9 +380,10 @@ async def run_batch_workflow(issue_ids: list[str]):
         sys.exit(1)
 
     total = len(issue_ids)
-    passed: list[str] = []
-    skipped: list[str] = []   # already_fixed or need_more_info
-    failed: list[str] = []
+    fixed: list[str] = []    # workflow ran, test PASS
+    failed: list[str] = []   # workflow ran, fix failed after retries
+    skipped: list[str] = []  # already_fixed / need_more_info / spawn gate blocked
+    errors: list[str] = []   # Python exception during workflow
     timings: dict[str, float] = {}   # issue_id → elapsed seconds
     token_stats: dict[str, dict] = {}  # issue_id → {"input": int, "output": int}
     _batch_t0 = time.perf_counter()
@@ -415,27 +413,27 @@ async def run_batch_workflow(issue_ids: list[str]):
             print(f"{'═'*60}")
             _issue_t0 = time.perf_counter()
             try:
-                tok = await _execute_workflow(issue_id, config, project_root, mcp_manager=shared_mcp)
+                result = await _execute_workflow(issue_id, config, project_root, mcp_manager=shared_mcp)
                 timings[issue_id] = time.perf_counter() - _issue_t0
-                token_stats[issue_id] = tok or {"input": 0, "output": 0}
+                token_stats[issue_id] = result or {"input": 0, "output": 0}
                 tk = token_stats[issue_id]
-                total_tok = tk["input"] + tk["output"]
-                tok_str = f" | 🔢 {_fmt_tokens(total_tok)} (in {_fmt_tokens(tk['input'])} / out {_fmt_tokens(tk['output'])})" if total_tok else ""
+                total_tok = tk.get("input", 0) + tk.get("output", 0)
+                tok_str = f" | 🔢 {_fmt_tokens(total_tok)} (in {_fmt_tokens(tk.get('input', 0))} / out {_fmt_tokens(tk.get('output', 0))})" if total_tok else ""
                 print(f"\n  ⏱️  {issue_id} 耗時：{_fmt_duration(timings[issue_id])}{tok_str}")
-                # 讀取 analyze status 判斷是否真的跑完修復，或是中途中止
-                report_dir = AGENT_ROOT / "issues" / "reports" / config.get_project_key()
-                status = read_analyze_status(issue_id, report_dir)
-                if status in ("already_fixed", "need_more_info", "missing"):
-                    skipped.append(issue_id)
+                outcome = result.get("outcome", "unknown") if isinstance(result, dict) else "unknown"
+                if outcome == "fixed":
+                    fixed.append(issue_id)
+                elif outcome == "failed":
+                    failed.append(issue_id)
                 else:
-                    passed.append(issue_id)
+                    skipped.append(issue_id)
             except Exception as e:
                 timings[issue_id] = time.perf_counter() - _issue_t0
                 token_stats[issue_id] = {"input": 0, "output": 0}
-                print(f"\n  ❌ {issue_id} failed: {e}  ({_fmt_duration(timings[issue_id])})")
+                print(f"\n  💥 {issue_id} error: {e}  ({_fmt_duration(timings[issue_id])})")
                 import traceback
                 traceback.print_exc()
-                failed.append(issue_id)
+                errors.append(issue_id)
     finally:
         if shared_mcp:
             await shared_mcp.stop()
@@ -450,9 +448,10 @@ async def run_batch_workflow(issue_ids: list[str]):
     print(f"""
 ╭──────────────────────────────────────────────────────────╮
 │      Batch Complete                                       │
-│      ✅ Fixed:   {len(passed):<41}│
-│      ⏸️  Skipped: {len(skipped):<41}│
+│      ✅ Fixed:   {len(fixed):<41}│
 │      ❌ Failed:  {len(failed):<41}│
+│      ⏸️  Skipped: {len(skipped):<41}│
+│      💥 Error:   {len(errors):<41}│
 │      ⏱️  Total:   {_fmt_duration(total_elapsed):<41}│
 │      🔢 Tokens:  {tok_summary:<41}│
 ╰──────────────────────────────────────────────────────────╯""")
@@ -464,20 +463,24 @@ async def run_batch_workflow(issue_ids: list[str]):
             return ""
         return f"  🔢 {_fmt_tokens(t)} (in {_fmt_tokens(tk['input'])} / out {_fmt_tokens(tk['output'])})"
 
-    if passed:
+    if fixed:
         print("\n  Fixed:")
-        for i in passed:
+        for i in fixed:
             print(f"    ✅ {i}  ({_fmt_duration(timings.get(i, 0))}){_tok_suffix(i)}")
+    if failed:
+        print("\n  Failed (workflow ran, fix unsuccessful):")
+        for i in failed:
+            print(f"    ❌ {i}  ({_fmt_duration(timings.get(i, 0))}){_tok_suffix(i)}")
     if skipped:
-        print("\n  Skipped (already_fixed or need_more_info):")
+        print("\n  Skipped (already_fixed / need_more_info / spawn gate blocked):")
         for i in skipped:
             report_dir = AGENT_ROOT / "issues" / "reports" / config.get_project_key()
             status = read_analyze_status(i, report_dir)
             print(f"    ⏸️  {i}  [{status}]  ({_fmt_duration(timings.get(i, 0))}){_tok_suffix(i)}")
-    if failed:
-        print("\n  Failed:")
-        for i in failed:
-            print(f"    ❌ {i}  ({_fmt_duration(timings.get(i, 0))}){_tok_suffix(i)}")
+    if errors:
+        print("\n  Error (Python exception):")
+        for i in errors:
+            print(f"    💥 {i}  ({_fmt_duration(timings.get(i, 0))}){_tok_suffix(i)}")
 
 
 async def run_init_workflow(project_path: str, output_path: str, issue_prefix: str):

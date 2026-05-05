@@ -4,12 +4,12 @@ BugfixOrchestrator — Stage 5 Orchestrator-Worker 架構
 
 設計原則：
   - 資訊隔離：每個 subagent 只收到完成當前任務所需的最小 context
-  - Progressive Disclosure (Gated Reveal)：Analyze 分三輪揭露 SKILL.md
-      Gate A → Step 0.0（能力前置檢查）
-      Gate B → Steps 0.1–0.4（瀏覽器重現）
-      Gate C → Steps 1–5（RCA + 報告）
+  - Progressive Disclosure (Gated Reveal)：Analyze 分兩輪揭露 SKILL.md
+      Gate REPRODUCE → Step 0（能力前置 + 瀏覽器重現）
+      Gate RCA       → Steps 1–5（根源分析 + 報告）
   - Artifact 語義驗證：每次 spawn 前用純 Python 驗證上游 artifact
   - Retry 粒度：Gate 層級重試（非整個 phase 重跑）
+  - Outcome 追蹤：run() 回傳 "fixed" | "failed" | "skipped"
 """
 import re
 from dataclasses import dataclass
@@ -68,19 +68,19 @@ class BugfixOrchestrator:
         if analyze_status == "already_fixed":
             print("\n  ✅ Already fixed — no further action.")
             print(f"     Report: {self.report_dir / issue_id / 'analyze.md'}")
-            return self._tokens
+            return {**self._tokens, "outcome": "skipped"}
 
         if analyze_status != "confirmed":
             print(f"\n  ⏸  Analyze ended with status={analyze_status}")
             print(f"     Check: {self.report_dir / issue_id / 'analyze.md'}")
-            return self._tokens
+            return {**self._tokens, "outcome": "skipped"}
 
         # ── Spawn gate：validate analyze.md before implement ──
         gate = self._validate_analyze(issue_id)
         self._log_gate("analyze→implement", gate)
         if not gate.passed:
             print("  ⏸  Implement not spawned.")
-            return self._tokens
+            return {**self._tokens, "outcome": "skipped"}
 
         # ── Implement + Test loop ──
         for retry in range(MAX_IMPLEMENT_RETRIES + 1):
@@ -94,14 +94,14 @@ class BugfixOrchestrator:
 
             if verdict == "PASS":
                 print(f"\n  ✅ Fix complete! Reports: {self.report_dir / issue_id}/")
-                return self._tokens
+                return {**self._tokens, "outcome": "fixed"}
 
             if retry < MAX_IMPLEMENT_RETRIES:
                 print(f"\n  🔄 FAIL → re-implement ({retry + 1}/{MAX_IMPLEMENT_RETRIES})")
             else:
                 print(f"\n  💀 Max retries ({MAX_IMPLEMENT_RETRIES}) reached.")
 
-        return self._tokens
+        return {**self._tokens, "outcome": "failed"}
 
     # ──────────────────────────────────────────
     # Analyze — Progressive Disclosure
@@ -146,6 +146,19 @@ class BugfixOrchestrator:
                 break
             if attempt == 0:
                 print("\n  ⚠️  analyze.md not written — retrying RCA gate...")
+
+        # 0 tool calls = AI 可能依賴記憶幻覺分析，強制要求讀程式碼重來
+        if getattr(session, 'last_turn_tool_calls', -1) == 0:
+            print("\n  ⚠️  RCA gate: 0 tool calls — AI may have hallucinated. Retrying with explicit tool instruction...")
+            grounded_prompt = (
+                "你剛才的 RCA 分析沒有呼叫任何工具。\n"
+                "**必須先使用 search_files / read_file 工具實際讀取相關程式碼**，再覆蓋寫入 analyze.md。\n"
+                "不要依賴記憶或推斷，直接查看程式碼後再分析。\n\n"
+                f"Target project root: {self.project_root}\n"
+                f"Write analysis report to: {report_path}\n"
+                f"Issue ID: {issue_id}\n"
+            )
+            await run_in_session(session, "analyze-rca-grounded", grounded_prompt, max_tool_calls=30)
 
         self._accumulate(session)
         status = self._read_analyze_status(issue_id)
@@ -211,6 +224,7 @@ class BugfixOrchestrator:
             f"## 任務：Steps 1–5 — RCA 分析並寫入報告\n\n"
             f"Step 0 重現已完成（見上方對話中的觀察記錄）。"
             f"以這些觀察為基礎，執行完整根源分析並寫入報告。\n\n"
+            f"**重要：在撰寫任何分析結論前，必須先使用 search_files 或 read_file 工具實際讀取相關程式碼。**\n\n"
             f"{rca}"
             f"\n\n---\n\n"
             f"Target project root: {self.project_root}\n"
@@ -350,9 +364,6 @@ class BugfixOrchestrator:
         if re.search(r'\*\*Status\*\*[:\s]+already_fixed', text, re.IGNORECASE):
             return "already_fixed"
         if re.search(r'\*\*Status\*\*[:\s]+confirmed', text, re.IGNORECASE):
-            return "confirmed"
-        if re.search(r'\bconfirmed\b', text, re.IGNORECASE) and \
-                not re.search(r'need_more_info', text, re.IGNORECASE):
             return "confirmed"
         return "need_more_info"
 
