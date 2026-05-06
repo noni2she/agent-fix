@@ -85,6 +85,7 @@ class BugfixOrchestrator:
 
         # Prime Orchestrator with AGENTS.md + issue context
         if self._agents_md:
+            print("\n🤖 Initializing Orchestrator...")
             init_prompt = (
                 f"{self._agents_md}\n\n"
                 f"---\n\n"
@@ -202,6 +203,7 @@ class BugfixOrchestrator:
         )
 
         # ── Gate REPRODUCE: Step 0 全部（能力前置 + 瀏覽器重現）──
+        last_reproduce_judgment = ""
         for attempt in range(MAX_GATE_RETRIES + 1):
             if attempt == 0:
                 prompt = self._build_reproduce_prompt(issue_id, issue_json, screenshot_dir)
@@ -211,8 +213,9 @@ class BugfixOrchestrator:
                 )
             else:
                 retry_msg = (
-                    "Step 0 尚未完成（Orchestrator 判定重現未完成）。\n"
-                    "請繼續執行步驟 0.2–0.5：瀏覽器重現操作、截圖存入指定目錄。"
+                    f"Orchestrator feedback on previous attempt:\n{last_reproduce_judgment}\n\n"
+                    "Step 0 is not complete. Address the above feedback and retry Steps 0.2–0.5: "
+                    "browser reproduction, screenshot saved to the specified directory."
                 )
                 response = await run_in_session(
                     session, f"analyze-reproduce-retry-{attempt}", retry_msg,
@@ -243,6 +246,7 @@ class BugfixOrchestrator:
                 f"End your response with PROCEED, RETRY, or NEED_MORE_INFO.",
             )
 
+            last_reproduce_judgment = judgment
             if "PROCEED" in judgment.upper():
                 print(f"\n  ✅ Reproduce gate: Orchestrator — PROCEED")
                 break

@@ -129,6 +129,9 @@ Analyzer 判斷以下任一條件成立時，設 `needs_design_phase: true`：
 - [ ] 現有 `workflow.py` 重構或保留為向後相容的 legacy mode
 - [ ] CLI 新增 `--mode orchestrator`（預設）vs `--mode legacy`（目前一條龍）
 
+**Orchestrator 語義稽核（進階）**
+- [ ] Orchestrator 審查 Implement 是否符合對應 skill（web、React、TypeScript 等）：透過 Context7 MCP 拉取相關技術文件，Orchestrator 比對 implement.md 的修改與最佳實踐是否一致
+
 **MR 自動化（Issue Fixing 端）**
 - [ ] `config.yaml` 新增 `git_platform: github | gitlab`，Orchestrator 依此切換 CLI 命令
 - [ ] Tester PASS 後自動 push branch + 建立 MR/PR，取得平台回傳的 MR/PR ID

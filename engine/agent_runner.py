@@ -136,18 +136,19 @@ async def run_in_session(
     images: list[dict] | None = None,
 ) -> str:
     """在指定 session 執行一個 skill phase"""
-    print(f"\n{'='*60}")
-    print(f"🤖 [Subagent: {phase_name}] 執行中...")
-    print(f"{'='*60}")
+    if not phase_name.startswith("orchestrate"):
+        print(f"\n{'='*60}")
+        print(f"🤖 [Subagent: {phase_name}] 執行中...")
+        print(f"{'='*60}")
 
-    # 只顯示 --- 之後的任務段（略過 project context 與 skill body）
-    parts = user_message.split("---", 1)
-    task_preview = parts[-1].strip() if len(parts) > 1 else user_message.strip()
-    if len(task_preview) > 800:
-        task_preview = task_preview[:800] + "\n  ...(截斷)"
-    print(f"  📤 發送訊息:\n")
-    for line in task_preview.splitlines():
-        print(f"    {line}")
+        # 只顯示 --- 之後的任務段（略過 project context 與 skill body）
+        parts = user_message.split("---", 1)
+        task_preview = parts[-1].strip() if len(parts) > 1 else user_message.strip()
+        if len(task_preview) > 800:
+            task_preview = task_preview[:800] + "\n  ...(截斷)"
+        print(f"  📤 發送訊息:\n")
+        for line in task_preview.splitlines():
+            print(f"    {line}")
 
     return await execute_agent_session(
         session=session,
@@ -208,6 +209,7 @@ async def execute_agent_session(
     - 連續 IDLE_TIMEOUT 秒無任何事件才視為卡死並中止
     - 不限制總執行時間，LLM 健康工作時不會被誤殺
     """
+    is_orchestrator = agent_name.startswith("orchestrate")
     response_parts = []
     done = asyncio.Event()
     tool_call_count = 0
@@ -233,9 +235,11 @@ async def execute_agent_session(
                 if event.content:
                     response_parts.append(event.content)
                     if not in_message_stream:
-                        # Phase 第一段回應：印 header
-                        print(f"\n  📝 AI 回應:")
-                        print(f"  {'─'*50}")
+                        if is_orchestrator:
+                            print(f"\nOrchestrator：\n")
+                        else:
+                            print(f"\n  📝 AI 回應:")
+                            print(f"  {'─'*50}")
                         in_message_stream = True
                     elif after_tool_call:
                         # 工具呼叫後繼續回應：空一行再接
@@ -292,8 +296,9 @@ async def execute_agent_session(
                 if in_message_stream:
                     print()  # 確保最後一行有換行
                     in_message_stream = False
-                print(f"  {'─'*50}")
-                print(f"  ✅ Phase 完成，共 {tool_call_count} 次工具呼叫")
+                if not is_orchestrator:
+                    print(f"  {'─'*50}")
+                    print(f"  ✅ Phase 完成，共 {tool_call_count} 次工具呼叫")
                 done.set()
 
         except Exception:
@@ -339,7 +344,8 @@ async def execute_agent_session(
     # 供 Orchestrator 讀取（0 tool calls = 可能是幻覺輸出）
     session.last_turn_tool_calls = tool_call_count
 
-    _print_execution_stats(agent_name, time.time() - start_time, tool_call_count, max_tool_calls, tool_usage_stats)
+    if not is_orchestrator:
+        _print_execution_stats(agent_name, time.time() - start_time, tool_call_count, max_tool_calls, tool_usage_stats)
 
     return final_response
 
