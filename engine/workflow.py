@@ -222,7 +222,7 @@ Dev server URL: http://localhost:{dev_port}
 - Shared packages: {', '.join(cfg.paths.shared_packages) or 'none'}
 - Shared components: {', '.join(cfg.paths.shared_components) or 'none'}
 - Isolated modules: {', '.join(cfg.paths.isolated_modules) or 'none'}
-{f'- Domain logic: {chr(44).join(cfg.paths.domain_logic)}' if cfg.paths.domain_logic else ''}{auth_section}{skills_section}{bv_section}
+{f'- Domain logic: {chr(44).join(cfg.paths.domain_logic)}' if cfg.paths.domain_logic else ''}{f'{chr(10)}- Test fixtures: `{cfg.paths.test_fixtures_path}`' if cfg.paths.test_fixtures_path else ''}{auth_section}{skills_section}{bv_section}
 ---
 """
 
