@@ -106,53 +106,14 @@ Issue 可能為兩種格式：
 
 **重現成功的標準**：操作完 `reproduction_steps` 後，觀察到的行為與 `actual` 描述一致（樣式類則為視覺呈現與 `actual` 一致）。
 
-#### 0.3a 重現需要上傳外部檔案（test fixture）
+#### 0.3a 重現需要上傳外部檔案
 
-當 `reproduction_steps` 中包含「上傳影片 / 圖片 / 文件」等操作，且需要實際檔案才能繼續時，依序執行：
+當 `reproduction_steps` 中包含「上傳影片 / 圖片 / 文件」等操作，且需要實際檔案才能繼續時：
 
-**Step 1 — 查找 Project Context 中的 `test_fixtures_path`**
-
-- 若 Project Context 有定義 `test_fixtures_path`（絕對路徑）：
-  1. 列出該目錄下的檔案，找出符合場景的檔案（格式與 issue 描述相符，如 `.mp4` / `.jpg`）
-  2. 依下列場景判斷如何取得 `<input type="file">` 的 uid，再呼叫 `upload_file(uid=<uid>, filePath=<絕對路徑>)`
-  3. **【嚴格禁止】點擊上傳按鈕後等待 OS 系統檔案對話框** — 系統對話框無法在自動化環境中操作
-
-  **場景 A — `<input type="file">` 在 snapshot 中可見**
-  ```
-  take_snapshot
-  → 在元素清單中找到 input[type=file] 的 uid
-  → upload_file(uid=<uid>, filePath=<path>)
-  ```
-
-  **場景 B — `<input type="file">` 是 hidden（按鈕觸發，常見於自訂上傳按鈕）**
-  ```
-  evaluate_script: document.querySelector('input[type=file]').style.display = 'block'
-  → take_snapshot → 找到現在可見的 input[type=file] 的 uid
-  → upload_file(uid=<uid>, filePath=<path>)
-  ```
-
-  **場景 C — 拖放區域（Drag & Drop zone，無 `<input type="file">`）**
-  ```
-  此場景無法用 upload_file 處理
-  → 標記為 ⚠️ high-risk，觸發 Checkpoint，等待人類補充操作方式
-  ```
-
-  4. 上傳完成後，繼續後續 reproduction 步驟
-
-**Step 2 — `test_fixtures_path` 未定義或找不到合適檔案**
-
-- 停止重現流程
-- 在報告的 `Browser Reproduction Issues` 欄位明確記錄：
-
-  ```
-  Reproduction requires a test fixture file.
-  test_fixtures_path is not configured (or no suitable file found).
-  Reporter must provide: <描述所需檔案，如「a short .mp4 video (≤ 30s) for upload testing」>
-  ```
-
-- 將報告 status 標為 `need_more_info`，觸發 Checkpoint，等待人類補充 test fixture 後再繼續
-
-> ⚠️ 不要嘗試用 ffmpeg 或其他工具自行生成測試媒體檔案。
+- 載入 `upload-flow/SKILL.md`（位於 Skills Directories 下）
+- 依 upload-flow skill 的 **Step 0** 判斷所需檔案類型（圖片 / 影片 / 文件）
+- 依對應步驟執行上傳並觸發 React synthetic event
+- **【嚴格禁止】點擊上傳按鈕後等待 OS 系統檔案對話框** — 系統對話框無法在自動化環境中操作
 
 #### 0.4 重現失敗 fallback（靜態觀察）
 
