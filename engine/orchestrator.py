@@ -154,14 +154,23 @@ class BugfixOrchestrator:
 
             if retry < MAX_IMPLEMENT_RETRIES:
                 # Gate 4: Orchestrator decides if retry is worthwhile
+                timeout_note = ""
+                if verdict == "TIMEOUT":
+                    timeout_note = (
+                        f"\n⚠️ Note: the test agent timed out before writing `{test_report_name}` "
+                        f"(report file does not exist). This is a session timeout, not a test "
+                        f"failure. Re-implementing is likely not the right action."
+                    )
                 retry_judgment = await self._judge(
                     orch_session, f"retry-decision-{retry}",
                     f"## Gate 4: Test Retry Decision\n\n"
-                    f"Issue: {issue_id}, retry {retry + 1}/{MAX_IMPLEMENT_RETRIES}\n\n"
+                    f"Issue: {issue_id}, retry {retry + 1}/{MAX_IMPLEMENT_RETRIES}\n"
+                    f"Test verdict: {verdict}{timeout_note}\n\n"
                     f"Use `read_artifact` to read `{test_report_name}`, then decide.\n"
-                    f"End your response with RETRY or NEED_MORE_INFO.",
+                    f"End your response with **RETRY** or **NEED_MORE_INFO**.",
                 )
-                if "RETRY" not in retry_judgment.upper():
+                gate4_verdict = self._parse_verdict(retry_judgment, ["RETRY", "NEED_MORE_INFO"])
+                if gate4_verdict != "RETRY":
                     print(f"\n  ⏸  Orchestrator: stop retrying — {retry_judgment[:100]}")
                     break
                 print(f"\n  🔄 FAIL → re-implement ({retry + 1}/{MAX_IMPLEMENT_RETRIES})")
@@ -508,12 +517,38 @@ class BugfixOrchestrator:
         filename = "test.md" if retry == 0 else f"test-retry-{retry}.md"
         report = self.report_dir / issue_id / filename
         if not report.exists():
-            return "FAIL"
+            # File not written means the test agent was killed mid-run (idle timeout).
+            # Return TIMEOUT so the caller can distinguish this from a genuine test failure.
+            return "TIMEOUT"
         text = report.read_text(encoding="utf-8")
         m = re.search(r'\*\*Verdict\*\*[:\s]+\**\s*(PASS|FAIL)\**', text, re.IGNORECASE)
         if m:
             return m.group(1).upper()
         return "PASS" if "PASS" in text.upper() and "FAIL" not in text.upper() else "FAIL"
+
+    @staticmethod
+    def _parse_verdict(response: str, keywords: list[str]) -> str | None:
+        """
+        Extract the final gate verdict from an LLM response.
+
+        Looks for **Verdict: KEYWORD** or standalone **KEYWORD** bold patterns.
+        Using the *last* match avoids false positives from prose that references
+        earlier verdict keywords (e.g. "retry 2/3", "make a retry decision").
+        Falls back to scanning the last 5 non-empty lines for a bare keyword.
+        """
+        pattern = r'\*\*(?:Verdict[:\s]+)?(' + '|'.join(re.escape(k) for k in keywords) + r')\*\*'
+        matches = re.findall(pattern, response, re.IGNORECASE)
+        if matches:
+            return matches[-1].upper()
+
+        # Fallback: last 5 non-empty lines, stripped of markdown decoration
+        lines = [l.strip() for l in response.strip().split('\n') if l.strip()]
+        for line in reversed(lines[-5:]):
+            clean = re.sub(r'[*_#>\-]', '', line).strip().upper()
+            for kw in keywords:
+                if clean == kw.upper():
+                    return kw.upper()
+        return None
 
     # ──────────────────────────────────────────
     # SKILL.md gate parser

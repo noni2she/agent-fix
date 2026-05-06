@@ -191,7 +191,7 @@ def get_warning_points(agent_name: str) -> List[int]:
 # Agent 會話執行（SDK 無關）
 # ==========================================
 
-IDLE_TIMEOUT = 90  # 連續無事件超過此秒數視為卡死
+IDLE_TIMEOUT = 180  # 連續無事件超過此秒數視為卡死（Copilot SDK 內建工具不發事件，需較長容忍窗口）
 
 
 async def execute_agent_session(
