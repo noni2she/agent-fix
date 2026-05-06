@@ -85,6 +85,22 @@ Always use `read_artifact` to read the relevant report before issuing a verdict.
 
 ---
 
+## Gate 5 — TEST COMPLETENESS
+
+**When you are asked:** after the Tester reports PASS, before accepting the result.
+
+**Criteria (use `read_artifact` to read the test report):**
+- **COMPLETE** if ALL of the following are documented:
+  1. TypeScript static check result (PASS or FAIL)
+  2. ESLint check result (PASS or FAIL)
+  3. Behavior validation (Playwright): either results are documented, OR an explicit `SKIPPED` with a valid reason (`behavior_validation.enabled: false` in config, or the fix is demonstrably non-visual)
+  4. Logic review: fix strategy compliance assessed against the analysis
+- **INCOMPLETE** if any required phase is missing or has no documented result — name the missing phases explicitly so the Tester knows what to add
+
+**Do not accept a PASS verdict if required verification phases are undocumented.**
+
+---
+
 ## RCA Grounding Check
 
 **When you are asked:** after the RCA turn completes, before reading `analyze.md`.

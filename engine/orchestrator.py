@@ -144,7 +144,7 @@ class BugfixOrchestrator:
                 reason=align_judgment[:200],
             ))
 
-            verdict = await self._run_test(issue_id, retry=retry)
+            verdict = await self._run_test(issue_id, retry=retry, orch_session=orch_session)
             print(f"\n  ⚖️  Verdict: {verdict}")
 
             if verdict == "PASS":
@@ -319,8 +319,9 @@ class BugfixOrchestrator:
     # Test phase
     # ──────────────────────────────────────────
 
-    async def _run_test(self, issue_id: str, retry: int = 0) -> str:
+    async def _run_test(self, issue_id: str, retry: int = 0, orch_session=None) -> str:
         label = f"test{f'-retry-{retry}' if retry > 0 else ''}"
+        report_name = "test.md" if retry == 0 else f"test-retry-{retry}.md"
         print(f"\n{'─'*60}")
         print(f"  [Orchestrator] Phase: {label}")
         print(f"{'─'*60}")
@@ -328,9 +329,41 @@ class BugfixOrchestrator:
         _, session = await create_session(TEST_TOOLS)
         prompt = self._build_test_prompt(issue_id, retry=retry)
         await run_in_session(session, label, prompt, max_tool_calls=40)
-        self._accumulate(session)
 
-        return self._read_test_verdict(issue_id, retry)
+        verdict = self._read_test_verdict(issue_id, retry)
+
+        # Gate 5: Orchestrator verifies all required phases are documented (only on PASS)
+        if verdict == "PASS" and orch_session is not None:
+            completeness = await self._judge(
+                orch_session, f"test-completeness-{retry}",
+                f"## Gate 5: Test Completeness\n\n"
+                f"Issue: {issue_id}\n\n"
+                f"Use `read_artifact` to read `{report_name}`, then verify that ALL required "
+                f"verification phases were completed and their results documented:\n\n"
+                f"1. **TypeScript static check** — result must be documented (PASS or FAIL)\n"
+                f"2. **ESLint check** — result must be documented (PASS or FAIL)\n"
+                f"3. **Behavior validation (Playwright)** — either results are documented, "
+                f"OR an explicit SKIPPED with valid reason (config disabled / non-visual fix)\n"
+                f"4. **Logic review** — fix strategy compliance must be assessed\n\n"
+                f"If any required phase is missing or undocumented, end with INCOMPLETE "
+                f"and name the missing phases.\n"
+                f"If all required phases are present, end with COMPLETE.",
+            )
+            if "INCOMPLETE" in completeness.upper():
+                print(f"\n  ⚠️  [Orchestrator] Test incomplete — requesting missing phases...")
+                followup = (
+                    f"Orchestrator review: your verification report is incomplete.\n\n"
+                    f"{completeness}\n\n"
+                    f"Complete all missing verification phases, update `{report_name}` "
+                    f"with the full results, and update the **Verdict** field accordingly."
+                )
+                await run_in_session(
+                    session, f"test-complete-{retry}", followup, max_tool_calls=20,
+                )
+                verdict = self._read_test_verdict(issue_id, retry)
+
+        self._accumulate(session)
+        return verdict
 
     # ──────────────────────────────────────────
     # Prompt builders — information isolation
