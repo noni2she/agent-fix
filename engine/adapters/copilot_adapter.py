@@ -184,6 +184,13 @@ class CopilotAdapter(AgentAdapter):
                         }))
 
             elif event_type == SessionEventType.EXTERNAL_TOOL_REQUESTED:
+                # Custom/external tools registered via Tool()
+                tool_name = getattr(data, "tool_name", None) or "Unknown"
+                session.emit(AgentEvent(type="tool_start", tool_name=tool_name))
+
+            elif event_type == SessionEventType.TOOL_EXECUTION_START:
+                # Built-in tools (read_file, bash, grep, search_files, etc.)
+                # These were previously invisible to our event handler.
                 tool_name = getattr(data, "tool_name", None) or "Unknown"
                 session.emit(AgentEvent(type="tool_start", tool_name=tool_name))
 

@@ -87,16 +87,16 @@ class OpenAIAdapter(AgentAdapter):
         images: List[dict] | None = None,
     ) -> None:
         """
-        執行 OpenAI Agents Runner。
+        執行 OpenAI Agents Runner（streaming 模式）。
 
         1. 注入 pending 警告訊息
-        2. 用 Runner.run() 執行完整 agentic loop（含工具呼叫）
+        2. 用 Runner.run_streamed() 執行 agentic loop，即時 emit 事件
         3. 透過 result.to_input_list() 維護多輪對話
-        4. 解析 result，emit 標準化事件
+        4. 工具呼叫在發生當下 emit（非事後），idle timeout 不再因黑盒 run 誤觸
         """
         from agents import Runner, ItemHelpers
 
-        # 注入 pending 警告訊息
+        # 注入 pending 警告訊息（在 run 開始前一次性注入）
         full_message = message
         if session.pending_messages:
             warnings = "\n".join(session.pending_messages)
@@ -117,7 +117,37 @@ class OpenAIAdapter(AgentAdapter):
 
         current_input = native_session.input_list + [user_msg]
 
-        result = await Runner.run(native_session.agent, input=current_input)
+        # Streaming run：每個工具呼叫、訊息在發生當下即時 emit
+        result = Runner.run_streamed(native_session.agent, input=current_input)
+
+        try:
+            async for event in result.stream_events():
+                if event.type == "raw_response_event":
+                    continue  # 跳過 token-level delta，只處理語義事件
+
+                if event.type == "run_item_stream_event":
+                    name = getattr(event, "name", None)
+                    item = getattr(event, "item", None)
+
+                    if name == "tool_called" and item is not None:
+                        # 工具呼叫即時 emit（reset last_activity，計入統計）
+                        tool_name = (
+                            getattr(item, "function", None)
+                            or getattr(item, "name", None)
+                            or getattr(getattr(item, "raw_item", None), "name", None)
+                            or "Unknown"
+                        )
+                        session.emit(AgentEvent(type="tool_start", tool_name=str(tool_name)))
+
+                    elif name == "message_output_created" and item is not None:
+                        try:
+                            text = ItemHelpers.text_message_output(item)
+                            if text:
+                                session.emit(AgentEvent(type="message", content=text))
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
         # 更新對話歷史，供下一輪使用（shared session 的關鍵）
         native_session.input_list = result.to_input_list()
@@ -132,18 +162,6 @@ class OpenAIAdapter(AgentAdapter):
                 }))
         except Exception:
             pass
-
-        # 解析輸出，emit 標準化事件
-        final_text = ItemHelpers.text_message_outputs(result.new_items)
-        if final_text:
-            session.emit(AgentEvent(type="message", content=final_text))
-
-        # 記錄工具呼叫（OpenAI Agents SDK 已由 Runner 處理，這裡只 emit 統計用事件）
-        for item in result.new_items:
-            item_type = getattr(item, "type", None) or type(item).__name__
-            if "tool" in str(item_type).lower() and "call" in str(item_type).lower():
-                tool_name = getattr(item, "name", None) or getattr(getattr(item, "raw_item", None), "name", "Unknown")
-                session.emit(AgentEvent(type="tool_start", tool_name=str(tool_name)))
 
         session.emit(AgentEvent(type="idle"))
 
