@@ -484,12 +484,36 @@ retro 發現改善點
 
 ---
 
-## 階段 10：獨立 Plugin（可選，待架構穩定後進行）
+## 階段 10：Host Platform 整合（可選，待架構穩定後進行）
+
+> **背景**：目前 agent-fix 是以 Python CLI 直接呼叫 LLM SDK（SDK consumer 角色）。
+> 若要讓它能在 Claude Code、Codex CLI、VS Code 等 host 環境中執行，
+> 角色必須反轉：agent-fix 改為 **MCP server 或 Plugin**，由 host 環境呼叫它的工具，
+> 而非由它主動發起 session。這是架構性的轉變，engine/workflow.py 的 session 管理
+> 和 idle timeout 機制在此模式下不再適用，需要重新設計控制流程。
+
+### 10-A：Claude Code Plugin（`.claude-plugin/` 格式）
 
 - [ ] 將通用 skills 包裝為 `.claude-plugin/` 格式
 - [ ] 建立 `plugin.json`、`marketplace.json`
 - [ ] 發佈到 Claude Code marketplace 或內部分享
 - [ ] 各專案透過 `claude plugin add` 安裝
+- [ ] 確認在 Plugin 模式下 Orchestrator 控制流程的替代方案（Claude Code 自己管理 session，agent-fix 只提供 tools + SKILL.md）
+
+### 10-B：MCP Server 模式（通用 host 平台支援）
+
+讓 agent-fix 作為 MCP server 暴露工具，任何支援 MCP 的 host（Claude Code、Codex CLI、VS Code Copilot Chat 等）都能呼叫：
+
+- [ ] 設計 MCP tool schema：`run_analyze`、`run_implement`、`run_test`、`read_artifact`
+- [ ] 新增 `engine/mcp_server.py`：以 FastMCP 或 mcp SDK 包裝現有 workflow
+- [ ] 釐清 Orchestrator 控制流程誰負責：由 host LLM 或 agent-fix 自身 MCP server 決定 retry
+- [ ] CLI 新增 `agent-fix serve` 指令，啟動 MCP server 模式
+- [ ] `config.yaml` 指定 host platform（`claude-code` | `codex-cli` | `vscode` | `standalone`），決定 event model
+
+### 10-C：Codex CLI / VS Code 整合
+
+- [ ] 確認 Codex CLI 的 tool 整合方式（MCP 或 subprocess？）
+- [ ] VS Code extension：評估是否透過 MCP server 橋接，或需要獨立 extension 包裝
 
 ---
 
