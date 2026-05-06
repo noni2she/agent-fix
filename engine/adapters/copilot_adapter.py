@@ -164,8 +164,9 @@ class CopilotAdapter(AgentAdapter):
                 if content and isinstance(content, str):
                     session.emit(AgentEvent(type="message", content=content))
 
-                # Best-effort token usage（Copilot SDK 不保證一定有）
-                usage = getattr(data, "usage_info", None) or getattr(data, "usage", None)
+            elif event_type == SessionEventType.ASSISTANT_USAGE:
+                # Dedicated usage event — more reliable than reading from ASSISTANT_MESSAGE data
+                usage = data
                 if usage:
                     input_tokens = (
                         getattr(usage, "prompt_tokens", None)
