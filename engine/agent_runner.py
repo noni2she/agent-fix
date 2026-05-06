@@ -134,6 +134,7 @@ async def run_in_session(
     user_message: str,
     max_tool_calls: int,
     images: list[dict] | None = None,
+    prompt_sources: list[str] | None = None,
 ) -> str:
     """在指定 session 執行一個 skill phase"""
     if not phase_name.startswith("orchestrate"):
@@ -141,14 +142,19 @@ async def run_in_session(
         print(f"🤖 [Subagent: {phase_name}] 執行中...")
         print(f"{'='*60}")
 
-        # 只顯示 --- 之後的任務段（略過 project context 與 skill body）
-        parts = user_message.split("---", 1)
-        task_preview = parts[-1].strip() if len(parts) > 1 else user_message.strip()
-        if len(task_preview) > 800:
-            task_preview = task_preview[:800] + "\n  ...(截斷)"
-        print(f"  📤 發送訊息:\n")
-        for line in task_preview.splitlines():
-            print(f"    {line}")
+        print(f"  📤 發送訊息:")
+        if prompt_sources:
+            for src in prompt_sources:
+                print(f"    {src}")
+        else:
+            # fallback: truncated content preview
+            parts = user_message.split("---", 1)
+            task_preview = parts[-1].strip() if len(parts) > 1 else user_message.strip()
+            if len(task_preview) > 800:
+                task_preview = task_preview[:800] + "\n  ...(截斷)"
+            print()
+            for line in task_preview.splitlines():
+                print(f"    {line}")
 
     return await execute_agent_session(
         session=session,

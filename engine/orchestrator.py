@@ -210,6 +210,12 @@ class BugfixOrchestrator:
                 response = await run_in_session(
                     session, "analyze-reproduce", prompt,
                     max_tool_calls=35, images=images,
+                    prompt_sources=[
+                        "Project Context",
+                        "skills/bugfix-analyze/SKILL.md [preamble + GATE: REPRODUCE]",
+                        f"Issue: {issue_id}",
+                        *(["+ attached image(s)"] if images else []),
+                    ],
                 )
             else:
                 retry_msg = (
@@ -220,6 +226,10 @@ class BugfixOrchestrator:
                 response = await run_in_session(
                     session, f"analyze-reproduce-retry-{attempt}", retry_msg,
                     max_tool_calls=35,
+                    prompt_sources=[
+                        f"Orchestrator feedback (attempt {attempt})",
+                        "skills/bugfix-analyze/SKILL.md [GATE: REPRODUCE — retry]",
+                    ],
                 )
 
             # Objective check first (no LLM needed for file existence)
@@ -265,6 +275,11 @@ class BugfixOrchestrator:
             rca_prompt = self._build_rca_prompt(issue_id, report_path)
             rca_response = await run_in_session(
                 session, "analyze-rca", rca_prompt, max_tool_calls=40,
+                prompt_sources=[
+                    "skills/bugfix-analyze/SKILL.md [GATE: RCA]",
+                    f"Issue: {issue_id} (REPRODUCE context carried from same session)",
+                    f"→ analyze.md: {report_path}",
+                ],
             )
             if report_path.exists():
                 break
@@ -293,7 +308,10 @@ class BugfixOrchestrator:
                 f"Write analysis report to: {report_path}\n"
                 f"Issue ID: {issue_id}\n"
             )
-            await run_in_session(session, "analyze-rca-grounded", grounded_prompt, max_tool_calls=30)
+            await run_in_session(
+                session, "analyze-rca-grounded", grounded_prompt, max_tool_calls=30,
+                prompt_sources=["Orchestrator grounding feedback (re-run with explicit tool instruction)"],
+            )
 
         self._accumulate(session)
         status = self._read_analyze_status(issue_id)
@@ -310,9 +328,20 @@ class BugfixOrchestrator:
         print(f"  [Orchestrator] Phase: {label}")
         print(f"{'─'*60}")
 
+        analyze_path = self.report_dir / issue_id / "analyze.md"
+        implement_path = self.report_dir / issue_id / "implement.md"
         _, session = await create_session(ANALYZE_IMPLEMENT_TOOLS)
         prompt = self._build_implement_prompt(issue_id, retry=retry)
-        await run_in_session(session, label, prompt, max_tool_calls=30)
+        sources = [
+            "Project Context",
+            "skills/bugfix-implement/SKILL.md",
+            f"← {analyze_path}",
+            f"→ {implement_path}",
+        ]
+        if retry > 0:
+            prev_test = "test.md" if retry == 1 else f"test-retry-{retry - 1}.md"
+            sources.insert(2, f"← {self.report_dir / issue_id / prev_test} (failure context)")
+        await run_in_session(session, label, prompt, max_tool_calls=30, prompt_sources=sources)
         self._accumulate(session)
 
     # ──────────────────────────────────────────
@@ -326,9 +355,20 @@ class BugfixOrchestrator:
         print(f"  [Orchestrator] Phase: {label}")
         print(f"{'─'*60}")
 
+        analyze_path = self.report_dir / issue_id / "analyze.md"
+        implement_path = self.report_dir / issue_id / "implement.md"
         _, session = await create_session(TEST_TOOLS)
         prompt = self._build_test_prompt(issue_id, retry=retry)
-        await run_in_session(session, label, prompt, max_tool_calls=40)
+        await run_in_session(
+            session, label, prompt, max_tool_calls=40,
+            prompt_sources=[
+                "Project Context",
+                "skills/bugfix-test/SKILL.md",
+                f"← {analyze_path}",
+                f"← {implement_path}",
+                f"→ {self.report_dir / issue_id / report_name}",
+            ],
+        )
 
         verdict = self._read_test_verdict(issue_id, retry)
 
@@ -359,6 +399,7 @@ class BugfixOrchestrator:
                 )
                 await run_in_session(
                     session, f"test-complete-{retry}", followup, max_tool_calls=20,
+                    prompt_sources=["Orchestrator completeness feedback (same session — fill missing phases)"],
                 )
                 verdict = self._read_test_verdict(issue_id, retry)
 
