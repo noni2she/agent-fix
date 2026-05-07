@@ -521,10 +521,15 @@ class BugfixOrchestrator:
             # Return TIMEOUT so the caller can distinguish this from a genuine test failure.
             return "TIMEOUT"
         text = report.read_text(encoding="utf-8")
-        m = re.search(r'\*\*Verdict\*\*[:\s]+\**\s*(PASS|FAIL)\**', text, re.IGNORECASE)
+        # Match the entire Verdict line regardless of emoji or extra markdown
+        # e.g. "**Verdict**: ✅ **PASS**" or "**Verdict**: FAIL"
+        m = re.search(r'\*\*Verdict\*\*[^\n]*(PASS|FAIL)', text, re.IGNORECASE)
         if m:
             return m.group(1).upper()
-        return "PASS" if "PASS" in text.upper() and "FAIL" not in text.upper() else "FAIL"
+        # Fallback: scan only the first 20 lines to avoid false positives
+        # from SKIPPED/E2E sections that mention both PASS and FAIL
+        head = "\n".join(text.splitlines()[:20]).upper()
+        return "PASS" if "PASS" in head and "FAIL" not in head else "FAIL"
 
     @staticmethod
     def _parse_verdict(response: str, keywords: list[str]) -> str | None:
