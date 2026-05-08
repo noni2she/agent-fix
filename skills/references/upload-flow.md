@@ -1,10 +1,3 @@
----
-name: upload-flow
-description: Generic file upload flow for React frontend apps. Load this skill when bugfix-analyze Step 0.3a detects that reproduction requires a file upload step.
-user-invocable: false
-disable-model-invocation: false
----
-
 # Upload Flow
 
 > This skill describes file upload automation in semantic, tool-agnostic terms.

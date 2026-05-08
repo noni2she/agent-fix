@@ -34,13 +34,7 @@ Issue 可能為兩種格式：
 
 **⚠️ 工具使用效率原則：盡量用最少的步驟定位問題**
 
-**🔋 Token 節省規則（所有步驟皆適用）**
-
-1. **snapshot 去重**：同一頁面狀態只 `take_snapshot` 一次。已有 snapshot 後，後續操作（click / fill）直接用 snapshot 裡的 ref（如 `uid=N_M`），**【嚴格禁止】每次 click / fill 後立即再次 `take_snapshot`**。**只有在頁面內容因操作而發生明顯變化時**（如導航到新頁、dialog 開啟/關閉、列表刷新）才執行新的 `take_snapshot`。
-
-2. **console 只查 error**：呼叫 `list_console_messages` 時只看 `type=error` 的項目，忽略 warning / log / info。找到 error 後直接記錄，不要遍歷所有訊息。
-
-3. **network 只查失敗 API**：呼叫 `list_network_requests` 時只關注 4xx / 5xx 的請求。`get_network_request` 只在需要看 request / response body 時才呼叫，不要對每個 request 都呼叫一遍。
+> 瀏覽器工具效率規則：載入 `../references/browser-efficiency.md`
 
 <!-- GATE:REPRODUCE -->
 ### Step 0: 重現問題（瀏覽器優先）
@@ -49,104 +43,7 @@ Issue 可能為兩種格式：
 
 > ⚠️ 不要在 Step 0 做程式碼追蹤或根因推理——那是 Steps 1–4 的工作。Step 0 只觀察「現象」。
 
-#### 0.0 能力前置檢查（在所有瀏覽器操作之前執行）
-
-逐條閱讀 `reproduction_steps`，辨識每個步驟需要的操作能力。對於你不確定是否能執行的操作，掃描**目前 session 中所有可用的工具**（MCP 工具、內建工具、CLI 指令均納入），找有沒有任何工具可以達成相同目的：
-
-- 若找到對應工具 → 記下工具名稱，繼續
-- 若找不到 → 將此步驟標記為 ⚠️ high-risk，到達該步驟時若失敗立即觸發 Checkpoint，**不得靜默跳過、不得改走 fallback**
-
-#### 0.1 登入確認（若 Project Context 有 Auth Config）
-
-若 **Project Context** 定義了 `Auth Config`，在任何瀏覽器操作前先確認登入狀態：
-
-1. `list_pages` → 查看目前開啟的 tab 列表
-2. `select_page` → 選擇最適合的現有 tab（優先選已在目標 app URL 的 tab，其次選第一個）；**不要呼叫 `new_page`**
-3. `navigate_page` → `http://localhost:<port>/`（首頁）
-2. `take_screenshot` → 觀察目前頁面
-3. 判斷登入狀態：
-   - 看到使用者選單 / 頭像 / 個人資訊 → **已登入**，跳到 Step 0.2
-   - 看到登入入口（登入按鈕、表單、或被導向登入頁）→ **未登入**，執行下一步
-4. 若未登入：
-   - 載入 `auth-flow/SKILL.md`（位於 Skills Directories 下）
-   - 參考 auth-flow skill 的 **Step 1: Email / Phone + Password Login**
-   - 登入流程（直接跳轉 URL、modal、multi-step）需自行讀目標專案判斷，不要假設固定路由
-   - 使用 Project Context 中 `Auth Config` 的 Username / Password 填寫登入表單
-   - ⚠️ 送出後必須等待 post-login 指示元素出現（使用者選單、頭像等），確認頁面跳轉完成後才繼續操作。**不要在送出後立即截圖**，頁面未穩定時會造成長時間等待。
-
-> ⚠️ 若 Project Context 沒有 `Auth Config` 區段，跳過此步驟直接進入 0.2。
-
-#### 0.2 提取驗證依據
-
-從 issue 中提取重現所需資訊：
-
-- `reproduction_steps` — 重現步驟
-- `expected` / `actual` — 預期行為 vs 實際行為
-- `module` — 問題所在模組
-- `comments` — **若 issue 來源是 Jira/Issue Tracker，需檢查 comments**，常包含補充重現條件、環境資訊、reporter 後續發現
-
-#### 0.3 瀏覽器重現（所有問題類型的預設路徑）
-
-**所有 issue 類型（互動類、樣式類、邏輯類）一律先走瀏覽器重現。** 邏輯類雖然根因在程式碼，但通常會在瀏覽器顯示為 console error / network 4xx-5xx / UI 異常，瀏覽器仍是最直接的觀察現場。
-
-> ⚠️ **issue 的附件截圖不等於瀏覽器重現。** 截圖只是 reporter 當下的狀態快照，可能拍到的是正常運作的情況，或是特定條件下才觸發的行為。**必須親自操作，才能看到 network response 的實際內容**（尤其是「功能看起來有做，但回傳結果錯誤」這類場景）。即使 issue 有詳細截圖，Step 0 仍必須執行。
-
-使用 chrome-devtools MCP 工具，依照 `reproduction_steps` 逐步操作：
-
-1. 確認 dev server 運行中：`curl -s http://localhost:<port> > /dev/null || echo "Dev server not running"`
-2. `list_pages` → 查看目前開啟的 tab；`select_page` → 選擇現有 tab（**不要呼叫 `new_page`，全程使用同一個 tab**）
-3. `navigate_page` 先導回 **專案首頁**（`http://localhost:<port>/`），確保每個 issue 從同一個乾淨狀態開始（**若 Step 0.1 已登入，此步導航後確認仍保持登入狀態**）
-3. 依照 issue 的進入點，`navigate_page` 打開問題頁面
-4. 依照 `reproduction_steps` 逐步操作（`click` / `fill` / `press_key` / `navigate_page`）
-5. **確認 `actual` 描述的錯誤行為真的出現** → 這是此步驟的核心目標
-6. `take_screenshot` 截圖記錄失敗狀態，存入 task prompt 指定的截圖目錄下 `reproduction.png`（**只截這一張，不要在其他步驟截圖**）
-7. `list_console_messages` 找 type=error 的 runtime exception
-8. `list_network_requests` 找失敗的 API（4xx / 5xx）
-9. 若有必要，`evaluate_script` 驗證 DOM 狀態或 store 值
-
-**重現成功的標準**：操作完 `reproduction_steps` 後，觀察到的行為與 `actual` 描述一致（樣式類則為視覺呈現與 `actual` 一致）。
-
-#### 0.3a 重現需要上傳外部檔案
-
-當 `reproduction_steps` 中包含「上傳影片 / 圖片 / 文件」等操作，且需要實際檔案才能繼續時：
-
-- 載入 `upload-flow/SKILL.md`（位於 Skills Directories 下）
-- 依 upload-flow skill 的 **Step 0** 判斷所需檔案類型（圖片 / 影片 / 文件）
-- 依對應步驟執行上傳並觸發 React synthetic event
-- **【嚴格禁止】點擊上傳按鈕後等待 OS 系統檔案對話框** — 系統對話框無法在自動化環境中操作
-
-#### 0.4 重現失敗 fallback（靜態觀察）
-
-當瀏覽器無法重現時——常見原因：未登入 / 權限不足 / 缺少測試資料 / 環境異常 / 頁面跳轉錯誤——執行以下記錄後退回靜態觀察：
-
-1. `take_screenshot` 截圖當前失敗狀態，存入 task prompt 指定的截圖目錄下 `reproduction-failed.png`（**只截這一張**）
-2. `list_console_messages` 記錄所有 type=error 的訊息
-3. `list_network_requests` 記錄失敗的 API（4xx / 5xx）
-4. 將觀察到的阻礙（如「未登入導致 401」、「跳轉到 /login」、「缺少 mock 資料」）記入 `Browser Reproduction Issues`
-5. 進入 Step 1 RCA，繼續完整分析——**最終 status 由靜態分析品質決定，不是由重現結果決定**
-
-> 純邏輯問題（無 UI 出口、僅在 unit test 才能觀察）也走此路徑：記錄「無法在瀏覽器觀察」後進入 Step 1。
-
-#### 0.5 根據結果決定後續動作
-
-| 結果 | 後續動作 | Status |
-|------|---------|--------|
-| **重現成功** | 繼續 Step 1–4 完整分析 | `confirmed`（最終由分析品質決定） |
-| **問題已被修正**（操作後 actual 行為消失，符合 expected） | 輸出 `already_fixed` 報告，**停止分析** | `already_fixed` |
-| **重現失敗，靜態分析找到明確根因**（confidence > 0.6） | 記錄阻礙 → 繼續 Steps 1–4 → 可輸出 `confirmed` | `confirmed`（於 `Browser Reproduction Issues` 說明無法重現原因） |
-| **重現失敗，靜態分析仍無法確定根因**（confidence ≤ 0.6） | 記錄所有已知線索 | `need_more_info` |
-
-**已修正時的報告格式：**
-
-```
-### 分析報告
-
-- **Status**: already_fixed
-- **Root Cause File**: <修正所在檔案>
-- **Root Cause Line**: <修正所在行號>
-- **Fix Description**: <說明哪段程式碼已處理此問題>
-- **Confidence Score**: <0-1>
-```
+→ 詳細程序：載入 `references/browser-reproduction.md`
 
 <!-- GATE:RCA -->
 ### Step 1: 語義定位
@@ -176,46 +73,7 @@ Issue 可能為兩種格式：
 - **i18n 翻譯錯誤**
 - **共用元件的客製化機制**（className prop、style prop、render props 等）
 
-### Step 2.5: 外部契約檢查（External Contract Discipline）
-
-當你準備建議的修復方向涉及「改變程式碼解讀外部 API response / 第三方資料 / 後端事件的方式」時，先執行此步驟。
-
-**觸發條件**（符合任一即執行）：
-- 修復會改變讀取的 response 欄位名稱
-- 修復會修改判斷「成功 / 失敗 / 異常」的條件
-- 修復假設外部回傳的格式、列舉值或順序
-- **issue 描述「功能 X 應該攔截 / 阻擋 Y，但沒有攔截」** → 必須先確認現有的攔截邏輯是否真的執行，以及其回傳的實際結果，再決定是「前端缺檢查」還是「API 行為錯誤」
-
-> **「缺少前端檢查」與「API 回傳錯誤」的診斷差異**：
-> - 若 network tab 顯示 API **從未被呼叫** → 確實是前端缺少觸發
-> - 若 network tab 顯示 API **已被呼叫但回傳不符預期結果** → bug 在 API，不在前端，不應新增冗餘的前端檢查來「繞過」問題
-> - **沒有瀏覽器重現，無法區分這兩種情況 → 必須先跑 Step 0**
-
-#### 2.5.1 驗證契約
-
-依序嘗試，找到任一佐證即可繼續：
-
-| 驗證方式 | 通過條件 |
-|---------|---------|
-| API 文件 | Project Context / repo 內找到對應 API 文件，欄位定義與修復方向一致 |
-| 瀏覽器實測 | 本次 Step 0 中親自觀察到的 network tab response，確認欄位真實樣貌。⚠️ **Issue 附件截圖不算**「瀏覽器實測」—— reporter 的截圖不等於你親自取得的 network response |
-| 直接呼叫 API | 瀏覽器重現失敗時的替代方案：用 `evaluate_script` 執行 `fetch` 或用 bash `curl` 直接呼叫對應 endpoint，取得真實 response body。佐證等級等同「瀏覽器實測」 |
-| 同一 API 的其他呼叫端 | codebase 內其他地方對同一 API 的用法可作為間接佐證 |
-
-**三個都無法驗證 → 不可修改契約相關程式碼 → Confidence Score 強制扣 0.40，輸出 `need_more_info`**
-
-#### 2.5.2 「程式碼看起來是對的」也是有效結論
-
-若靜態分析顯示前端程式碼邏輯與契約一致，但 issue 描述顯示功能仍失常：
-
-- **不要為了「找到能改的地方」而幻覺式修改**（例如：改欄位名、加防禦性條件）
-- 結論應為：bug 不在前端，可能在 API / 後端 / 資料來源
-- 輸出 `need_more_info`，並在 `Browser Reproduction Issues` 欄位標註：
-  ```
-  Frontend code aligns with observed/documented API contract.
-  Symptom suggests issue may be in: <API endpoint / backend service>
-  Recommend investigating: <具體建議，如「check why /api/profanity-check returns is_profane=false for known profane input」>
-  ```
+**若修復方向涉及外部 API 契約變更** → 載入 `references/external-contract.md`
 
 ### Step 3: 影響範圍分析
 
@@ -254,28 +112,7 @@ Issue 可能為兩種格式：
 
 **不觸發**：純文字錯誤（i18n/文案）、純邏輯錯誤（條件反了/missing prop）、單一明確修復路徑
 
-**執行步驟：**
-
-1. 列舉 ≥ 2 種候選修復方案（functional 上都能解決 bug）
-2. 依問題類型，用 `search_files` grep `ux-guidelines.csv` 篩選相關規則
-   （資料來源：[UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)，MIT License）：
-
-   | 問題類型 | grep Category |
-   |---------|--------------|
-   | layout / scroll / modal / overflow | `Layout` |
-   | 按鈕 / 狀態回饋 / 點擊互動 | `Interaction` |
-   | 手機觸控 / touch target | `Touch` |
-   | 表單 / input / 驗證 | `Forms` |
-   | 無障礙 / 對比度 / ARIA | `Accessibility` |
-   | 動畫 / transition | `Animation` |
-   | 導航 / 路由 | `Navigation` |
-
-3. 對每個候選方案，對照 Do / Don't / Severity 欄位評分
-4. 選擇最符合 UX 規則的方案作為最終 `Suggested Fix`
-5. 在報告中記錄 `Needs Design Phase`、`Candidate Solutions` 與選擇理由
-
-> **Stage 5 注意**：`Needs Design Phase: true` 是為 Orchestrator-Worker 架構預留的 flag。
-> 屆時此步驟將拆出為獨立 Designer subagent，UX 評估邏輯不變，只是執行角色分離。
+→ 觸發時載入 `references/ux-evaluation.md`
 
 ## 輸出格式
 

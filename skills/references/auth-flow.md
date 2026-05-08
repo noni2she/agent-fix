@@ -1,10 +1,3 @@
----
-name: auth-flow
-description: Generic authentication flow for frontend web apps. Load this skill when bugfix-analyze Step 0.1 detects an unauthenticated state.
-user-invocable: false
-disable-model-invocation: false
----
-
 # Authentication Flow
 
 > This skill describes login steps in semantic, tool-agnostic terms.
