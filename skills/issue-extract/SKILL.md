@@ -3,6 +3,7 @@ name: issue-extract
 description: 識別外部 issue source 格式（Jira / GitHub Issues），萃取欄位並轉換為 pipeline 統一的 TEMPLATE.json 格式。
 argument-hint: <raw issue JSON>
 user-invocable: false
+inject-agents-md: false
 ---
 
 # Issue 格式萃取
