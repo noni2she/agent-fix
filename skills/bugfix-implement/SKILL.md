@@ -1,220 +1,147 @@
 ---
 name: bugfix-implement
-description: 根據分析報告實作修復。當已經完成 bugfix-analyze 分析、有明確的 root cause 和修復策略後，使用此 skill 進行實際修復。
-argument-hint: <issue-id>
+description: 根據分析報告實作修復。當已完成 bugfix-analyze 分析、有明確的 root cause 和修復策略後使用。
+argument-hint: <analyze-report-path>
 ---
 
-# 修復實作 (Tactical & Risk-Aware Engineer)
+# 修復實作
 
-你負責根據分析報告進行修復。核心原則：**「穩定性優於完美的程式碼」**。
+## 職責
 
-> **Project Context** 已在本次任務開頭注入。請以 Project Context 中定義的指令（build、lint、test）與目錄結構作為專案依據。
+根據 analyze.md 的修復計畫進行實作。評估工程方案、判斷技術影響，產出最小範圍的程式碼修改。
 
-## 🔒 Git 前置關卡（修改任何程式碼前必須完成）
+> **Project Context** 已在本次任務開頭注入。請以 Project Context 中定義的目錄結構、建置指令（build、lint、test）與 knowledge skills 作為專案依據。
 
-**禁止在完成以下步驟前使用 Edit / Write 工具。**
+## 輸入
 
-逐步執行並在繼續前確認每個指令的輸出：
+- **analyze.md**：包含 Root Cause File/Line、Fix Strategy、Suggested Fix、Code Snippet
+
+## Git 前置關卡
+
+修改任何程式碼前，依序執行並確認每步輸出：
 
 ```bash
-# Step 1: 確認 working tree 乾淨
-git status
-
-# Step 2: 切換至 main 並同步最新程式碼
-git checkout main && git pull origin main
-
-# Step 3: 建立 bugfix 分支
-git checkout -b bugfix/<issue-id>-<description>
-
-# Step 4: 確認已在正確分支上
-git branch --show-current
+git status                                        # Step 1: 確認 working tree 乾淨
+git checkout main && git pull origin main         # Step 2: 同步最新程式碼
+git checkout -b bugfix/<issue-id>-<description>   # Step 3: 建立 bugfix 分支
+git branch --show-current                         # Step 4: 確認在正確分支
 ```
 
-確認 Step 4 輸出為 `bugfix/...` 後，才可以進行程式碼修改。
+Step 4 輸出必須為 `bugfix/...` 才可繼續修改程式碼。
 
-⛔ **若跳過上述任一步驟直接修改程式碼，視為違規，必須立即停止、回復現場，並重新執行關卡。**
+## 策略遵守
 
-## 🚨 策略遵守規則（絕對禁止違反）
+必須無條件遵守 analyze.md 中的 `Fix Strategy`：
 
-**你必須無條件遵守分析報告中的 `fix_strategy` 建議！**
+- `DIRECT` → 使用 Direct Fix
+- `TACTICAL` → 使用 Tactical Fix
 
-- ✅ 分析建議 `DIRECT` → 使用 Direct Fix
-- ✅ 分析建議 `TACTICAL` → 使用 Tactical Fix
-- ❌ **禁止**自行判斷並改用其他策略
+禁止自行改變策略。唯三例外（可回報錯誤而不修復）：
+1. root_cause_file 不存在
+2. root_cause_line 處的程式碼與分析描述不符
+3. 修復後產生無法解決的靜態型別錯誤
 
-### 例外情況（僅 3 種可回報錯誤而不修復）
+## 實作前驗證
 
-1. **找不到檔案**：root_cause_file 不存在
-2. **檔案內容不符**：root_cause_line 處的程式碼與分析描述不符
-3. **型別錯誤無法解決**：修復後產生無法修復的靜態型別錯誤
+開始實作前，讀取 analyze.md 指定的 root_cause_file 與 impacted_files，確認：
+- 建議使用的 store、hook、prop 實際存在
+- root_cause_line 的程式碼符合分析描述
 
-## 驗證分析建議（實作前必做）
-
-**⚠️ 在開始實作修復之前，必須先驗證分析報告的建議是否可行！**
-
-1. 讀取 root_cause_file、impacted_files、相關 store/hook/元件
-2. 確認建議使用的 store、hook、prop 是否存在
-3. 決定：可行 → 繼續；不可行 → 立即停止並回報
+不可行時停止，輸出驗證失敗報告：
 
 ```
 ### 分析建議驗證失敗
 
 - **問題步驟**: <哪個建議有誤>
 - **原因**: <為什麼不可行>
-- **證據**: <從程式碼找到的實際型別/介面定義>
+- **證據**: <從程式碼找到的實際定義>
 - **正確做法**: <應該怎麼做>
 ```
 
 ## 修復策略
 
-### 策略 A: Direct Fix（直接修復）
+### Direct Fix
 
-**適用情境**：獨立模組、影響範圍 ≤ 3 個檔案、非核心共用元件
+適用：獨立模組、影響範圍 ≤ 3 個檔案、非核心共用元件
 
-**執行方式**：
 1. 讀取 root_cause_file
 2. 根據 root_cause_line 定位錯誤
-3. 修正邏輯錯誤
-4. 寫回檔案
+3. 修正邏輯錯誤並寫回
 
-```typescript
-// ❌ 修復前
-const buttonText = isFollowing ? '關注' : '回關'
+### Tactical Fix
 
-// ✅ 修復後
-const buttonText = isFollowing ? '回關' : '關注'
+適用：`packages/*`、引用 > 3 次的元件、核心功能（auth、websocket、store）
+
+1. 不修改原始共用檔案
+2. 在呼叫端實作 wrapper 或 guard clause
+3. 加上 TODO 註解標記技術債
+
+```
+// [TODO refactor] <issue_id>: <簡短說明>
+// 原因: <為什麼使用 Tactical Fix>
+// 未來應: <理想的重構方向>
 ```
 
-### 策略 B: Tactical Fix（戰術性修復）
+## 知識型 Skill 查詢
 
-**適用情境**：`packages/*`、引用 > 3 次的元件、核心功能（auth, websocket, store）
+修改特定類型的程式碼前，查詢 **Project Context** 中宣告的對應 knowledge skill：
 
-**執行方式**：
-1. **不要修改原始共用檔案**
-2. 在**呼叫端 (Caller)** 實作 Wrapper 或 Guard Clause
-3. 加上 `// TODO` 註解標記技術債
+| 情境 | 查詢 knowledge skill 的類別 |
+|------|---------------------------|
+| 修改 UI component | rendering / re-render 規則 |
+| 涉及資料獲取 | async / client-side 規則 |
+| 新增第三方套件 | bundle size 規則 |
+| 修改 Server Component | server-side 規則 |
 
-```typescript
-// ❌ 錯誤做法：直接改共用元件
-// packages/ui/src/components/FollowButton.tsx
+Project Context 未宣告 knowledge skill 時，依 LLM 訓練知識處理。
 
-// ✅ 正確做法：在呼叫端隔離修復
-// apps/morse-web/src/app/search/page.tsx
-import { FollowButton as BaseFollowButton } from '@/components'
+## UX
 
-// [TODO refactor] MORSE-1234: Tactical fix to avoid regression
-// 原因: FollowButton 是共用元件，被多個頁面使用，直接修改風險高
-// 未來應: 統一修正 packages/ui/src/components/FollowButton.tsx 並更新所有呼叫端
-function SafeFollowButton({ isFollowing, ...props }) {
-  return <BaseFollowButton isFollowing={!isFollowing} {...props} />
-}
-```
+確認實作沒有引入新的 UX 問題。
 
-## React/Next.js Coding Standards
+## Commit 前驗證
 
-修復程式碼時，在以下情境**必須**載入 `/vercel-react-best-practices` 查閱對應規則後再寫 code：
+禁止在通過以下驗證前執行 `git commit`。讀取 Project Context 中 `quality_checks` 區塊，逐一執行所有 `enabled: true` 的指令：
 
-| 情境 | 需參考的規則分類 |
-|------|----------------|
-| 新增或修改 React component | `rerender-*`、`rendering-*` |
-| 涉及資料獲取（fetch/API call） | `async-*`、`client-*` |
-| 新增 import 或第三方套件 | `bundle-*` |
-| 修改 Server Component | `server-*` |
+- TypeScript 型別檢查：必須 exit code 0，無 error
+- ESLint：warning 可接受，error 不行
+- Prettier：格式必須通過
+- `git diff`：確認只修改了該改的檔案，無意外變更
 
-修改 UI 樣式或互動行為時，使用 `/web-design-guidelines` 對修改的檔案做合規性檢查。
-
-## UX Final Check
-
-> **UX 方案選擇**已在 analyze 階段的 Step 5 完成（grep `ux-guidelines.csv` 評估候選方案）。
-> 此處只做**實作後的快速確認**，確保程式碼沒有引入新的 UX 問題。
-
-寫完修復程式碼後，逐項確認：
-
-- [ ] **Feedback**：動作有回饋嗎？（按鈕點擊後有反應、非同步操作有 loading）
-- [ ] **Error State**：API 失敗或驗證失敗時，使用者看得到明確的錯誤訊息嗎？
-- [ ] **Empty State**：資料為空時有適當的空狀態提示嗎？
-- [ ] **Disabled State**：不可操作的元素有明確的視覺提示嗎？
-- [ ] **Scroll**：有沒有意外產生 nested scroll？（參考 `ux-guidelines.csv` Layout > scroll-behavior）
-- [ ] **一致性**：修復後的 UI 行為與 app 其他同類元素一致嗎？
-- [ ] **不引入新 UX 問題**：修復這個 bug 有沒有讓其他互動變得怪異？
-
-如果上述任一項不符合預期，且問題屬於 layout / scroll / modal / interaction 類，
-用 `search_files` grep `ux-guidelines.csv` 的對應 Category 查詢具體規則後再修正。
-
-## ✅ Commit 前驗證關卡
-
-**禁止在通過以下驗證前執行 `git commit`。**
-
-讀取 **Project Context** 中 `quality_checks` 區塊，逐一執行所有 `enabled: true` 的指令：
-
-- TypeScript 型別檢查（若啟用）：必須 exit code 0，沒有任何 error
-- ESLint（若啟用）：Warning 可接受，Error 不行
-- Prettier（若啟用）：格式必須通過
-- 確認 diff：`git diff` 確認只修改了該改的檔案，沒有意外變更
-
-驗證失敗時：**不要 commit**，回報錯誤、修正後重新驗證。
+驗證失敗時，修正後重新驗證再 commit。
 
 ## Git Commit
 
-通過驗證後，建立 commit：
-
 ```bash
-# Step 5: 確認 diff 只包含該改的檔案
-git diff
-
-# Step 6: 建立 commit（Conventional Commits 格式）
-git commit -m "<type>(<scope>): <description>"
-
-# 範例
-# fix(search): resolve follow status lost on tab switch
+git diff                                          # Step 5: 確認 diff 只包含應改的檔案
+git commit -m "<type>(<scope>): <description>"    # Step 6: Conventional Commits 格式
 ```
 
 ## 修復規範
 
 - 遵循專案命名規範（camelCase、PascalCase）
-- 不要引入 `console.log` 或 `debugger`
-- 不要修改無關的程式碼（例如格式化整個檔案）
-- 保持原有程式碼風格
-- **最多修改 3 個檔案**；如需修改 > 3 個，回報「建議作為重構專案處理」
+- 不引入 `console.log` 或 `debugger`
+- 不修改無關程式碼，保持原有程式碼風格
+- 最多修改 3 個檔案；若需修改更多，回報「建議作為重構專案處理」
 
-### Tactical Fix 註解格式
+## 處理 Tester 回饋
 
-```typescript
-// [TODO refactor] <issue_id>: <簡短說明>
-// 原因: <為什麼要用 Tactical Fix>
-// 未來應: <理想的重構方向>
-```
+收到 tester 回饋後：
 
-## 處理 Tester 回饋與重試
-
-1. **仔細閱讀回饋**：理解具體錯誤、失敗原因、修復建議
-2. **禁止重複相同的錯誤**：被指出用了錯誤的 store，絕不能再犯
-3. **必須實際修改程式碼**：不能只讀檔案確認後不做任何修改
-4. **完全遵守建議**：Tester 的 suggestion 是明確的修改指示
-5. **使用 `git commit --amend`** 更新之前的 commit
-
-### 重試檢查清單
-
-- [ ] 已讀取並理解 Tester 回饋的所有內容
-- [ ] 已實際修改程式碼（不是只檢查）
-- [ ] 修改內容完全遵守 Tester 的建議
-- [ ] 沒有重複之前的錯誤
-- [ ] 已通過 tsc + lint 驗證
-- [ ] 已確認 diff 正確
-- [ ] 已更新 commit
+1. 理解具體錯誤與失敗原因
+2. 實際修改程式碼（不能只確認後不修改）
+3. 完全遵守 tester 的建議，不重複之前的錯誤
+4. 通過驗證後建立新 commit（不使用 `--amend`）
 
 ## 輸出格式
 
 ```
 ### 修復報告
 
-- **Strategy Used**: DIRECT | TACTICAL
+- **Branch**: bugfix/<issue-id>-<description>
+- **Status**: success | failed | escalated
 - **Modified Files**: <修改的檔案列表>
-- **Git Branch**: <分支名稱>
-- **Git Commit**: <commit message>
-- **Fix Summary**: <修復摘要>
-- **Estimated Risk**: <0-1 風險評估>
-- **Action Log**: <執行步驟記錄>
+- **Fix Summary**: <1-2 行說明使用的工程方案與選擇理由，例如：「在 onChange 加入 300ms debounce 防止 video re-render；選 debounce 而非 throttle 因需等待輸入停止後才觸發」>
 ```
 
 ## 報告持久化
