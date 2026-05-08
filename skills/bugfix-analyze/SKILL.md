@@ -17,18 +17,16 @@ argument-hint: <issue-description or issue-id>
 
 ## 輸入格式
 
-你會收到 Issue 報告，可能包含以下資訊：
+你會收到標準化的 Issue JSON，欄位如下：
 
 - `issue_id` — Issue 編號
+- `summary` — 問題標題
 - `module` — 問題所在模組
 - `description` — 問題描述
 - `reproduction_steps` — 重現步驟
 - `expected` / `actual` — 預期行為 vs 實際行為
 - `attachments` — 截圖或附件
-
-Issue 可能為兩種格式：
-- **本地 TEMPLATE 格式**：有 `summary`、`description` 等直接欄位
-- **Issue Tracker raw 格式**（如 Jira）：有 `fields` 包裹層，請自行解讀
+- `comments` — 補充背景資訊（選填）
 
 ## 調查程序
 
@@ -119,21 +117,21 @@ Issue 可能為兩種格式：
 ```
 ### 分析報告
 
-- **Status**: confirmed | need_more_info
+- **Issue ID**: <來自輸入的 issue_id>
+- **Status**: confirmed | need_more_info | already_fixed
 - **Root Cause File**: <完整檔案路徑>
 - **Root Cause Line**: <行號>
 - **Root Cause Description**: <問題描述>
 - **Impacted Files**: <受影響檔案列表>
-- **Impacted Count**: <影響檔案數量>
 - **File Category**: isolated_component | shared_component | core_module
 - **Fix Strategy**: DIRECT | TACTICAL
 - **Fix Strategy Reason**: <策略選擇理由>
-- **Code Snippet**: <問題程式碼片段>
+- **Code Snippet**: <問題程式碼片段，≤10 行，[static read at analysis time]>
 - **Needs Design Phase**: true | false
 - **Candidate Solutions**: <候選方案列表，僅 Needs Design Phase = true 時填寫>
   - 方案 A：<描述> — UX 規則對照：<符合/違反哪條規則>
   - 方案 B：<描述> — UX 規則對照：<符合/違反哪條規則>
-- **Suggested Fix**: <最終選定的修復方式（UX 評估後的結果）>
+- **Suggested Fix**: <1-2 行修復方向（非程式碼）。TACTICAL 時必須描述替代路徑，例如「勿直接修改 X，改在呼叫端加 Y prop」>
 - **Confidence Score**: <依下表計算，base 1.0 扣分制，最低 0.1>
   - 根因定位：確切檔案+行號 (0) / 確切檔案無行號 (-0.10) / 只有模組名 (-0.25) / 無法定位 (-0.50)
   - 佐證來源：瀏覽器直接觀察 (0) / console error 或 network 4xx 間接佐證 (-0.05) / 靜態分析無法重現 (-0.20) / 純假設無工具佐證 (-0.40)
@@ -141,18 +139,6 @@ Issue 可能為兩種格式：
   - 修復路徑：明確知道改哪行 (0) / 方向明確細節待確認 (-0.05) / 修復方式不確定 (-0.10)
   - 外部依賴假設：不涉及外部契約 (0) / 涉及且有文件或實測佐證 (-0.05) / 涉及但僅靠程式碼推測 (-0.40) / 程式碼看起來正確但行為失常（bug 可能在外部）→ 強制 need_more_info
 - **Browser Reproduction Issues**: <瀏覽器操作時碰到的問題，如未登入導致 401、頁面跳轉錯誤等>（重現失敗時填寫，靜態分析也找到根因時仍保留）
-```
-
-**如果是純邏輯 Bug**，額外提供：
-
-```
-### Verification Hints
-
-- **Bug Type**: logic | ui | interaction
-- **Verification Method**: static | unit_test | e2e
-- **Test Scenario**: <測試場景描述>
-- **Test Input**: <測試輸入>
-- **Expected Output**: <預期輸出>
 ```
 
 ## 報告持久化
@@ -165,5 +151,4 @@ Issue 可能為兩種格式：
 1. **不要猜測**：找不到明確錯誤位置時，status 設為 `need_more_info`
 2. **不要修復**：你只負責分析，不要產生完整修復程式碼
 3. **精確行號**：root_cause_line 必須是實際行號，不能估計
-4. **驗證引用**：impacted_count 要根據實際搜尋結果
-5. **檢查客製化能力**：判斷共用元件需要 TACTICAL 前，先確認有無 className/style 等 props
+4. **檢查客製化能力**：判斷共用元件需要 TACTICAL 前，先確認有無 className/style 等 props

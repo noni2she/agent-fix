@@ -17,6 +17,7 @@
       "description": "錯誤截圖"
     }
   ],
-  "priority": "High",
-  "reporter": "張三"
+  "comments": [
+    "相關背景或補充資訊"
+  ]
 }
