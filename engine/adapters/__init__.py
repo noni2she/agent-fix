@@ -73,11 +73,45 @@ def get_default_model(sdk: str | None = None) -> str:
     return os.getenv("DEFAULT_MODEL", DEFAULT_MODELS.get(sdk, ""))
 
 
+class AdapterPool:
+    """
+    管理多個 adapter 實例，確保每個 sdk 只 start() 一次。
+
+    使用方式：
+        pool = AdapterPool()
+        adapter = await pool.get("copilot")
+        await pool.stop_all()
+    """
+
+    def __init__(self):
+        self._pool: dict[str, AgentAdapter] = {}
+
+    async def get(self, sdk: str | None = None) -> AgentAdapter:
+        """
+        回傳指定 sdk 的 adapter（已 start()）。
+        同一 sdk 只會 start() 一次。
+        """
+        sdk = sdk or os.getenv("SDK_ADAPTER", "copilot")
+        if sdk not in self._pool:
+            adapter = get_adapter(sdk)
+            await adapter.start()
+            self._pool[sdk] = adapter
+        return self._pool[sdk]
+
+    async def stop_all(self):
+        """停止所有已啟動的 adapter"""
+        for adapter in self._pool.values():
+            if hasattr(adapter, "stop"):
+                await adapter.stop()
+        self._pool.clear()
+
+
 __all__ = [
     "AgentAdapter",
     "AgentSession",
     "AgentEvent",
     "get_adapter",
     "get_default_model",
+    "AdapterPool",
     "SUPPORTED_ADAPTERS",
 ]

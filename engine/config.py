@@ -260,6 +260,27 @@ class MCPServerConfig(BaseModel):
     )
 
 
+class AgentPhaseConfig(BaseModel):
+    """單一 subagent 的 SDK + model 設定（均可省略，省略時沿用全域設定）"""
+    sdk: Optional[str] = Field(
+        default=None,
+        description="SDK adapter：copilot | claude | openai（省略時讀 SDK_ADAPTER env）"
+    )
+    model: Optional[str] = Field(
+        default=None,
+        description="模型 ID（省略時讀 DEFAULT_MODEL env 或 adapter 預設值）"
+    )
+
+
+class AgentsConfig(BaseModel):
+    """各 subagent phase 的 SDK / model 個別設定"""
+    orchestrator:  AgentPhaseConfig = Field(default_factory=AgentPhaseConfig)
+    issue_extract: AgentPhaseConfig = Field(default_factory=AgentPhaseConfig)
+    analyze:       AgentPhaseConfig = Field(default_factory=AgentPhaseConfig)
+    implement:     AgentPhaseConfig = Field(default_factory=AgentPhaseConfig)
+    test:          AgentPhaseConfig = Field(default_factory=AgentPhaseConfig)
+
+
 class SkillsConfig(BaseModel):
     """Skills 配置"""
     directories: List[str] = Field(
@@ -327,6 +348,22 @@ class ProjectConfig(BaseModel):
     skills: SkillsConfig = Field(
         default_factory=SkillsConfig,
         description="Skills 配置"
+    )
+    agents: AgentsConfig = Field(
+        default_factory=AgentsConfig,
+        description=(
+            "各 subagent phase 的 SDK / model 個別設定（均可省略，省略時沿用全域設定）。\n"
+            "範例：\n"
+            "  agents:\n"
+            "    orchestrator:\n"
+            "      sdk: claude\n"
+            "      model: claude-opus-4-5\n"
+            "    implement:\n"
+            "      sdk: copilot\n"
+            "      model: claude-sonnet-4.5\n"
+            "    test:\n"
+            "      model: claude-haiku-3-5"
+        )
     )
     auth: Optional[ProjectAuthConfig] = Field(
         default=None,

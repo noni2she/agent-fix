@@ -15,7 +15,7 @@ import asyncio
 import time
 from typing import List
 
-from .adapters import get_adapter, get_default_model, AgentSession, AgentEvent
+from .adapters import get_adapter, get_default_model, AdapterPool, AgentSession, AgentEvent
 from .project_spec import ProjectSpec
 from .config import ProjectConfig
 
@@ -100,25 +100,33 @@ def setup_sdk_error_silencing(loop) -> callable:
 async def create_session(
     tool_names: List[str],
     sdk: str | None = None,
+    model: str | None = None,
     mcp_manager=None,
+    adapter_pool: AdapterPool | None = None,
 ) -> tuple:
     """
     建立 agent session（透過 adapter）。
 
     Args:
-        tool_names:  自訂工具名稱列表
-        sdk:         "copilot" | "claude" | "openai"（None 讀 SDK_ADAPTER env）
-        mcp_manager: MCPClientManager 實例（None = 不使用 MCP）
+        tool_names:    自訂工具名稱列表
+        sdk:           "copilot" | "claude" | "openai"（None 讀 SDK_ADAPTER env）
+        model:         模型 ID（None 讀 DEFAULT_MODEL env 或 adapter 預設值）
+        mcp_manager:   MCPClientManager 實例（None = 不使用 MCP）
+        adapter_pool:  AdapterPool 實例（有 pool 時複用同 sdk 的 adapter，避免重複 start()）
 
     Returns:
         (adapter, session) 元組
     """
-    adapter = get_adapter(sdk)
-    model = get_default_model(sdk)
-    await adapter.start()
+    if adapter_pool is not None:
+        adapter = await adapter_pool.get(sdk)
+    else:
+        adapter = get_adapter(sdk)
+        await adapter.start()
+
+    resolved_model = model or get_default_model(sdk)
     session = await adapter.create_session(
         tool_names=tool_names,
-        model=model,
+        model=resolved_model,
         mcp_manager=mcp_manager,
     )
     return adapter, session

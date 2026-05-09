@@ -24,6 +24,7 @@ from .agent_runner import (
     TEST_TOOLS,
     ORCHESTRATOR_TOOLS,
 )
+from .adapters import AdapterPool, get_default_model
 from .config import ProjectConfig
 from .tools import init_orchestrator_tools
 
@@ -63,6 +64,10 @@ class BugfixOrchestrator:
         self._tokens: dict = {"input": 0, "output": 0}
         self.issue_source_type = config.issue_source.type
 
+        # Per-subagent SDK / model 設定
+        self._agents_cfg = config.agents
+        self._adapter_pool = AdapterPool()
+
         # Load Orchestrator AGENTS.md
         agents_path = agent_root / "agents" / "issue-fix" / "AGENTS.md"
         self._agents_md = agents_path.read_text(encoding="utf-8") if agents_path.exists() else ""
@@ -74,6 +79,18 @@ class BugfixOrchestrator:
         })
 
     # ──────────────────────────────────────────
+    # Per-phase SDK / model resolver
+    # ──────────────────────────────────────────
+
+    def _resolve_phase(self, phase: str) -> tuple[str | None, str | None]:
+        """
+        回傳 (sdk, model)。
+        None 代表沿用全域設定（create_session 內部 fallback 到 env）。
+        """
+        cfg = getattr(self._agents_cfg, phase)
+        return cfg.sdk or None, cfg.model or None
+
+    # ──────────────────────────────────────────
     # Public entry point
     # ──────────────────────────────────────────
 
@@ -83,7 +100,10 @@ class BugfixOrchestrator:
         print(f"{'═'*60}")
 
         # Create Orchestrator Agent session (stateful across all gates)
-        _, orch_session = await create_session(ORCHESTRATOR_TOOLS)
+        sdk, model = self._resolve_phase("orchestrator")
+        _, orch_session = await create_session(
+            ORCHESTRATOR_TOOLS, sdk=sdk, model=model, adapter_pool=self._adapter_pool,
+        )
 
         # Prime Orchestrator with AGENTS.md + issue context
         if self._agents_md:
@@ -216,7 +236,10 @@ class BugfixOrchestrator:
             f"Raw input:\n\n```json\n{raw_json_str}\n```\n"
         )
 
-        _, session = await create_session([])  # 純格式轉換，不需 tools
+        sdk, model = self._resolve_phase("issue_extract")
+        _, session = await create_session(
+            [], sdk=sdk, model=model, adapter_pool=self._adapter_pool,
+        )  # 純格式轉換，不需 tools
         response = await run_in_session(
             session, "issue-extract", prompt, max_tool_calls=0,
             prompt_sources=[
@@ -268,7 +291,13 @@ class BugfixOrchestrator:
         print("  [Orchestrator] Phase: analyze (Gated Reveal)")
         print(f"{'─'*60}")
 
-        _, session = await create_session(ANALYZE_IMPLEMENT_TOOLS, mcp_manager=self.mcp_manager)
+        sdk, model = self._resolve_phase("analyze")
+        _, session = await create_session(
+            ANALYZE_IMPLEMENT_TOOLS,
+            sdk=sdk, model=model,
+            mcp_manager=self.mcp_manager,
+            adapter_pool=self._adapter_pool,
+        )
         screenshot_dir = (
             self.agent_root / "projects"
             / self.config.get_project_key() / "screenshots" / issue_id
@@ -402,7 +431,10 @@ class BugfixOrchestrator:
 
         analyze_path = self.report_dir / issue_id / "analyze.md"
         implement_path = self.report_dir / issue_id / "implement.md"
-        _, session = await create_session(ANALYZE_IMPLEMENT_TOOLS)
+        sdk, model = self._resolve_phase("implement")
+        _, session = await create_session(
+            ANALYZE_IMPLEMENT_TOOLS, sdk=sdk, model=model, adapter_pool=self._adapter_pool,
+        )
         prompt = self._build_implement_prompt(issue_id, retry=retry)
         sources = [
             "Project Context",
@@ -429,7 +461,10 @@ class BugfixOrchestrator:
 
         analyze_path = self.report_dir / issue_id / "analyze.md"
         implement_path = self.report_dir / issue_id / "implement.md"
-        _, session = await create_session(TEST_TOOLS)
+        sdk, model = self._resolve_phase("test")
+        _, session = await create_session(
+            TEST_TOOLS, sdk=sdk, model=model, adapter_pool=self._adapter_pool,
+        )
         prompt = self._build_test_prompt(issue_id, retry=retry)
         await run_in_session(
             session, label, prompt, max_tool_calls=40,
