@@ -251,7 +251,7 @@ quality_checks:
 issue_source:
   type: local_json
   options:
-    sources_dir: projects/<slug>/issues/sources
+    sources_dir: projects/<slug>/issues
 
 skills:
   directories:

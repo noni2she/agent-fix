@@ -13,7 +13,6 @@ wheels/
 .vscode/
 
 # Report files
-issues/report/
 
 # AI tooling files
 .github/
@@ -25,10 +24,6 @@ issues/report/
 .playwright-auth.json
 *.playwright-auth.json
 
-# Issue source files
-issues/sources/
-issues/screenshots/
-issues/reports/
 # Runtime project data (not committed)
-projects/*/issues/sources/
-projects/*/issues/reports/
+projects/*/issues/
+projects/*/reports/
