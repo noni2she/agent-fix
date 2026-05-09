@@ -29,7 +29,7 @@ SUPPORTED_ADAPTERS = ("copilot", "claude", "openai")
 
 # 各 adapter 的預設模型
 DEFAULT_MODELS = {
-    "copilot": "claude-sonnet-4.5",
+    "copilot": "claude-sonnet-4.6",
     "claude": "claude-opus-4-5",
     "openai": "gpt-4o",
 }
