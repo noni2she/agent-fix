@@ -60,13 +60,15 @@ argument-hint: <project_path> [issue_prefix]
 
 ### Step 3：偵測品質工具與路徑結構
 
-**品質工具**（讀根目錄或 main_workspace 的 scripts）：
+**品質工具**（讀根目錄與 main_workspace 的 scripts 及根目錄設定檔）：
 
-| script | 欄位 | 命令格式 |
-|--------|------|---------|
-| `type-check` / `typecheck` | `typescript.command` | `yarn workspace <ws> type-check` 或 `npx tsc --noEmit` |
-| `build`（next，備用） | `typescript.command` | `yarn workspace <ws> build` |
-| `lint` / `eslint` | `eslint.command` | `yarn workspace <ws> lint` |
+| 條件 | 欄位 | 命令格式 |
+|------|------|---------|
+| scripts 有 `type-check` / `typecheck` | `typescript.command` | `yarn workspace <ws> type-check` |
+| 無上述 script（fallback） | `typescript.command` | `npx tsc --noEmit` |
+| scripts 有 `lint` / `eslint` | `eslint.command` | `yarn workspace <ws> lint` |
+| 根目錄有 `.prettierrc*` 或 `prettier.config.*` | `prettier.command` | `yarn prettier --check .` |
+| scripts 有 `test` / `vitest` / `jest` | `tests.command` | `yarn workspace <ws> test`（`enabled: false`） |
 
 **路徑結構**：
 
@@ -81,9 +83,9 @@ argument-hint: <project_path> [issue_prefix]
 
 ### Step 4：偵測 Dev Server
 
-讀 `.env` / `.env.local` / `.env.development` 找 `PORT` 或 `NEXT_PUBLIC_PORT`。
+讀 `.env` / `.env.local` / `.env.development` / `apps/<ws>/.env.local` 找 `PORT` 或 `NEXT_PUBLIC_PORT`。
 
-若有 `docker-compose.yml` → `dev_server.command = "docker compose up"`。
+若有 `docker-compose.yml` 或 `compose.yaml` → `dev_server.command = "docker compose up"`。
 
 ### Step 5：偵測登入模組（Auth）
 
@@ -122,7 +124,7 @@ argument-hint: <project_path> [issue_prefix]
 project_name: <name>
 framework: <nextjs-15-app-router | nextjs-14-pages-router | nextjs-13-app-router | react-vite | react-cra>
 language: typescript  # 有 tsconfig.json → typescript，否則 javascript
-issue_prefix: <指定值或從 project_name 推算>
+issue_prefix: <指定值；未指定則取 project_name 第一段並大寫：morse-webapp → MORSE>
 
 monorepo:  # monorepo 才有此區塊
   tool: <turborepo | yarn-workspaces | npm-workspaces | pnpm-workspaces>
@@ -140,11 +142,17 @@ paths:
 
 quality_checks:
   typescript:
-    command: <偵測到的命令>
+    command: <偵測到的命令，無 type-check script 時為 npx tsc --noEmit>
     enabled: true
   eslint:
     command: <偵測到的命令>
     enabled: true
+  prettier:  # 偵測到 .prettierrc* 才產生此區塊
+    command: <偵測到的命令>
+    enabled: true
+  tests:  # 偵測到 test script 才產生此區塊
+    command: <偵測到的命令>
+    enabled: false
 
 issue_source:
   type: local_json
@@ -183,7 +191,11 @@ mcp_servers:
   chrome-devtools:
     command: npx
     args: ["-y", "chrome-devtools-mcp@latest"]
-    enabled: false
+    enabled: <前端 true；非前端 false>
+    # 進階：連接既有 Chrome session（保留登入狀態）：
+    # args: ["-y", "chrome-devtools-mcp@latest", "--browserUrl", "http://localhost:9222"]
+    # pre_launch: "open -na 'Google Chrome' --args --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug"
+    # pre_launch_wait: 3
   serena:
     command: uvx
     args: ["--from", "serena-agent", "serena", "start-mcp-server", "--project", "<paths.root>"]
@@ -213,7 +225,7 @@ mcp_servers:
 1. `paths.root` 必須是絕對路徑
 2. Monorepo 命令使用 `{{main_workspace}}`：config loader 會自動替換
 3. 偵測不到某項資訊：填最合理預設值，並在報告列出「無法偵測的項目」
-4. `issue_prefix` 未指定：從 `project_name` 取首個大寫 token，如 `chatapp` → `CHATAPP`
+4. `issue_prefix` 未指定：取 `project_name` 第一個 `-` 前的詞並大寫，如 `morse-webapp → MORSE`、`chatapp → CHATAPP`
 5. auth selector 必須來自實際讀取的原始碼，不可猜測
 
 ---
