@@ -1,148 +1,116 @@
 ---
 name: bugfix-test
-description: 驗證修復結果的品質關卡。當完成 bugfix-implement 修復後，使用此 skill 進行靜態分析、策略合規性檢查與行為驗證。
-argument-hint: <issue-id>
+description: 驗證修復結果的品質關卡。完成 bugfix-implement 後，進行靜態分析、策略合規性檢查與行為驗證。
+argument-hint: <analyze-report-path> <implement-report-path>
 ---
 
-# 品質驗證 (Quality Gatekeeper)
+# 品質驗證
 
-你的職責是驗證修復是否有效，並確保沒有產生副作用 (Side Effects)。
+你的職責是驗證修復是否有效，確保沒有產生副作用。**不負責修復**——發現問題只回報給 Engineer，不自己改程式碼。
 
-**核心原則**：你只負責驗證，不負責修復。發現問題時回報給 Engineer，不要自己改程式碼。
+> **Project Context** 已在本次任務開頭注入。請以 Project Context 中定義的指令（tsc、lint、dev server）與測試路徑規範作為執行依據。
 
-> **Project Context** 已在本次任務開頭注入。請以 Project Context 中定義的指令（tsc、lint、test、dev server）與測試路徑規範作為執行依據。
+## 輸入
+
+- **analyze.md**：Root Cause、Fix Strategy、reproduction_steps、expected
+- **implement.md**：Branch、Modified Files、Fix Summary
 
 ## 驗證程序
 
-### Phase 1: 靜態分析（必須通過）
+### Phase 1: 靜態分析
 
 #### 1.1 TypeScript 編譯檢查
 
-執行 **Project Context** 中定義的 TypeScript 檢查指令。
+執行 Project Context 中定義的 TypeScript 指令。
 
-- **必須通過**：沒有型別錯誤
-- **如果失敗**：立即回傳 FAIL，不繼續後續檢查
+- 必須通過：無型別錯誤
+- 失敗：立即回傳 FAIL，不繼續後續 Phase
 
 #### 1.2 ESLint 程式碼檢查
 
-執行 **Project Context** 中定義的 ESLint 指令。
+執行 Project Context 中定義的 ESLint 指令。
 
-- **允許 Warning**：可以有警告，但不能有 Error
-- **如果有 Error**：回傳 FAIL
+- Warning 允許；Error = FAIL
 
 ### Phase 2: 邏輯審查
 
-#### 2.1 檢查修復策略合規性
+#### 2.1 策略合規性
 
-讀取 diff 查看修改內容，驗證：
+讀取 git diff 確認修復符合 analyze.md 的 Fix Strategy：
 
-**如果分析建議 TACTICAL 策略**：
-- ✅ Engineer 沒有修改共用元件本身
-- ✅ Engineer 在呼叫端實作了 Wrapper/Guard
-- ✅ 有加上 `[TODO refactor]` 註解
+TACTICAL 策略：
+- 沒有修改共用元件本身
+- 呼叫端有 Wrapper / Guard Clause
+- 有 `[TODO refactor]` 註解
 
-**如果分析建議 DIRECT 策略**：
-- ✅ Engineer 直接修改了 root_cause_file
-- ✅ 沒有修改超過 3 個檔案
+DIRECT 策略：
+- 直接修改了 root_cause_file
+- 沒有修改超過 3 個檔案
 
-#### 2.2 檢查程式碼品質
+#### 2.2 程式碼品質
 
-- ❌ 不應有 `console.log` 或 `debugger`
-- ❌ 不應有大範圍的格式化變更
-- ✅ 變數命名符合專案規範
+- 不應有 `console.log` 或 `debugger`
+- 不應有大範圍格式化變更
+- 變數命名符合專案規範
 
-### Phase 3: 智能驗證（基於 verification_hints）
+#### 2.3 Side Effect 靜態分析
 
-**觸發條件**：分析報告中提供了 verification_hints
-
-```
-IF verification_hints 存在:
-    IF bug_type == "logic" AND verification_method == "unit_test":
-        → 執行單元測試驗證
-    ELSE IF verification_method == "e2e":
-        → 執行 Phase 4 行為驗證
-    ELSE:
-        → 僅靜態分析（已完成）
-ELSE:
-    → 使用原有流程
+```bash
+git diff --name-only   # 取得修改的檔案清單
 ```
 
-#### 單元測試驗證
+對每個修改的檔案，grep 直接 import 它的其他模組（一層深度），列入驗證報告的 Side Effect Risk 欄位，供 MR reviewer 參考。
 
-1. 檢查是否存在對應測試檔案（參照 Project Context 的測試路徑規範）
-2. 如果測試存在：執行 Project Context 中定義的測試指令
-3. 如果測試不存在：根據 verification_hints 產生臨時驗證腳本並執行
-4. 如果測試不存在，記錄技術債到報告中
+> 目前 pipeline 無 unit test / integration test，side effect 驗證僅覆蓋直接靜態依賴範圍。動態行為層面的 regression 由人工 MR review（未來由 issue verify team 的 AI MR review）把關。
 
-### Phase 4: 行為驗證（Playwright）
+### Phase 3: 行為驗證
 
-**觸發條件**：`verification_method == "e2e"`（分析報告中標記需要瀏覽器驗證）
+**觸發條件（任一成立即執行）**：
+- implement.md 的 Modified Files 包含 `.tsx` / `.jsx` 副檔名
+- implement.md 的 Modified Files 包含 `.css` / `.scss` / `.less` 副檔名
+- analyze.md 的 Root Cause Description 包含視覺相關關鍵字：render、display、layout、scroll、overflow、animation、style、visibility、modal、interaction
 
-**跳過條件**：
-- 純邏輯問題、靜態分析即可確認
-- `behavior_validation.enabled: false`（config 停用）
-- 分析報告 `verification_method` 為 `static` 或 `unit_test`
+**不觸發**（三條都不符）：修改限於 `.ts` / `.js`，且 Root Cause Description 無視覺關鍵字。跳過時標記 `behavior_validation: SKIPPED`。
 
-> ⛔ **禁止跳過的情況**：凡修復涉及 CSS、樣式、排版、scroll、overflow、modal、動畫、RWD、字體大小等視覺或互動行為，**一律不得標記 SKIPPED**，無論靜態分析是否通過。這類 bug 的正確性只能透過實際渲染確認。
+**步驟 0：先觀察，再設計場景**
 
-跳過時標記 `behavior_validation: SKIPPED`，不影響整體 Verdict。
-
-#### 執行流程
-
-**步驟 0（必要）：先觀察，再設計場景**
-
-在設計任何 scenario 之前，**必須**先執行以下動作：
-1. 呼叫 `run_behavior_validation` 執行一個僅含 `goto` 的場景，截圖確認當前頁面狀態
-2. 從截圖或 DOM 中取得真實存在的元素與 selector
+1. 呼叫 `run_behavior_validation` 執行僅含 `goto` 的場景，截圖確認當前頁面狀態
+2. 從截圖或 DOM 取得真實存在的 selector
 3. 依觀察結果設計後續 scenario
 
-**禁止憑空猜測 selector 或按鈕文字**。所有 selector 必須來自步驟 0 的觀察結果。
+禁止憑空猜測 selector 或按鈕文字。
 
-**步驟 1：設計測試場景**
+**步驟 1：設計驗證場景**
 
-根據步驟 0 的觀察結果，以及分析報告的 `reproduction_steps` 與 `verification_hints`，設計 scenario JSON：
+- 從 analyze.md 的 `reproduction_steps` 對應動作序列
+- 從 Project Context 的 Behavior Validation Scenario Schema 取得可用 action / assertion 類型
+- assertions 方向：**確認 expected result 出現**（而非重現 bug）
 
-- 從 Project Context 附錄的 **Behavior Validation Scenario Schema** 取得可用 action / assertion 類型
-- 從 `reproduction_steps` 對應動作序列
-- assertions 設計為「驗證 bug 已修復」，而非「重現 bug」
+> browser 操作規則參照 `references/browser-reproduction.md`，斷言方向相反。
 
-**步驟 2：呼叫 `run_behavior_validation` tool**
+**步驟 2：執行 `run_behavior_validation`**
 
-將設計好的 scenario JSON 字串傳入 tool，由 Python 端負責：
-- 檢查 dev server 是否在執行（自動啟動或報錯）
-- 開啟 Playwright Chromium
-- 執行動作序列 + 斷言
-- 截圖留存（失敗時自動截圖）
-- 回傳 PASS / FAIL / SKIPPED + 詳細結果
+傳入 scenario JSON，由 Python 端執行 Playwright 驗證（auto-wait + retry assertions）。
 
 **步驟 3：解讀結果**
 
-- `PASS` → 繼續 Phase 5
-- `FAIL` → **先重試一次**：
-  1. 截圖確認失敗當下的頁面狀態
-  2. 根據截圖調整 selector 或動作序列
-  3. 重新執行場景
-  - 若重試仍失敗 → 回傳 FAIL，包含：
-    - 哪個動作或斷言失敗
-    - 錯誤訊息
-    - 截圖路徑（供 Engineer 參考）
-  - **不得以「此類 bug 不適合 E2E」為由跳過重試**
-- `SKIPPED` → 僅限 config 停用（`behavior_validation.enabled: false`）或明確為非視覺類修復
+- PASS → 繼續 Phase 4
+- FAIL → 重試一次：截圖確認當下頁面狀態，調整 selector 或動作序列後重試
+  - 重試仍 FAIL → 回傳 FAIL，附上失敗動作/斷言、錯誤訊息、截圖路徑
 
-### Phase 5: UI/UX 規範檢查（僅限 UI 相關修復）
+### Phase 4: UI 規範檢查（條件式）
 
-**僅當修復涉及 UI 變更**（樣式、排版、互動行為）時，載入 `/web-design-guidelines` 檢查是否符合 Web Interface Guidelines。
+**觸發條件**：Phase 3 已執行
 
-- 不涉及 UI 變更（純邏輯、API、資料流）→ 跳過
-- 發現違規標記為 Warning，不阻擋 PASS（accessibility 嚴重問題除外）
+查詢 Project Context 中宣告的 UI knowledge skill，確認修復後的 UI 符合設計規範。
 
-### Phase 6: 測試覆蓋檢查（記錄但不阻擋）
+違規記錄為 Warning，不阻擋 PASS（accessibility 嚴重問題除外）。
 
-根據 **Project Context** 的測試路徑規範，檢查修改的模組是否有對應測試檔案。
+### Phase 5: 測試覆蓋（記錄）
 
-如果沒有測試檔案：
-- 📝 記錄到技術債清單
-- 🔴 **不要**在此時建立測試
+根據 Project Context 的測試路徑規範，確認修改的模組是否有對應測試檔案。
+
+無測試檔案時記錄技術債，不建立測試，不阻擋 Verdict。
 
 ## 輸出格式
 
@@ -155,12 +123,13 @@ ELSE:
   - ESLint: PASS | FAIL
   - Strategy Compliance: PASS | FAIL
   - Code Quality: PASS | FAIL
+  - Side Effect Risk: <直接依賴此修改的模組列表，供 MR reviewer 參考>
   - Behavior Validation: PASS | FAIL | SKIPPED
-- **Verification Method**: static | unit_test | e2e
+- **Verification Method**: static | e2e
 - **Summary**: <驗證摘要>
 ```
 
-**如果 FAIL**，額外提供：
+FAIL 時額外提供：
 
 ```
 - **Failed Check**: <哪項檢查失敗>
@@ -171,12 +140,10 @@ ELSE:
 
 ## 驗證通過後
 
-當 Verdict 為 **PASS** 時：
+Verdict 為 PASS 時：
 
-1. **Push 分支**：`git push origin <branch-name>`
-2. **回報完成**：告知分支已推送，可以建立 Merge Request
-
-**不要自動建立 MR / PR**，由使用者決定。
+1. Push 分支：`git push origin <branch-name>`
+2. 根據 Project Context 的 `auto_create_mr` 設定決定是否自動建立 MR
 
 ## 報告持久化
 
@@ -185,8 +152,8 @@ ELSE:
 
 ## 重要原則
 
-1. **不要自己修復程式碼** — 你只負責驗證
-2. **給明確的錯誤訊息** — 告訴 Engineer 具體哪裡錯了、怎麼修
-3. **TypeScript 錯誤 = 立即 FAIL**
-4. **ESLint Warning 可接受** — 只有 Error 才算 FAIL
-5. **行為驗證失敗要提供截圖** — 幫助 Engineer 理解問題
+1. 不要自己修復程式碼——只負責驗證
+2. 給明確的錯誤訊息——告訴 Engineer 具體哪裡錯了、怎麼修
+3. TypeScript 錯誤 = 立即 FAIL
+4. ESLint Warning 可接受——只有 Error 才算 FAIL
+5. 行為驗證失敗要提供截圖，幫助 Engineer 理解問題
