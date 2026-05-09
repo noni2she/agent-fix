@@ -12,7 +12,7 @@
 - **Progressive Disclosure** — Analyze 分三輪揭露 SKILL.md，消除 backward pressure
 - **Artifact 語義驗證** — 每次 spawn 前以純 Python 驗證上游 artifact 品質
 - **Smart Retry** — 測試失敗自動回到 implement 重修（最多 3 次）
-- **MCP 支援** — bugfix-analyze 階段可接 chrome-devtools-mcp 等 MCP server
+- **MCP 支援** — bugfix-analyze 階段可接 chrome-devtools-mcp、Serena 等 MCP server
 
 ## Architecture
 
@@ -21,10 +21,16 @@ agent-fix/
 ├── install.sh                 # 一鍵安裝腳本
 ├── cli.py                     # CLI 入口（agent-fix / afix 指令）
 ├── main.py                    # 向後相容 shim（python main.py <id>）
-├── config-template.yaml       # 專案配置範本
-├── projects/                  # 配置範例
-│   ├── turborepo-nextjs.yaml  # Turborepo + Yarn Workspace
-│   └── minimal-nextjs.yaml    # 單一 Next.js 專案
+├── config-template.yaml       # 專案配置參考範本
+├── schemas/                   # Schema 與範本文件
+│   ├── issue_template.json    # Issue 報告範本（local_json 模式）
+│   ├── sheets_template.csv    # Google Sheets 批次輸入範本
+│   └── config_turborepo_example.yaml
+├── projects/                  # 各目標專案配置（每個子目錄一個專案）
+│   └── <slug>/
+│       ├── config.yaml        # 專案配置（commit 進 repo）
+│       ├── issues/            # Bug 報告 JSON 輸入（gitignored）
+│       └── reports/           # Phase 報告輸出（gitignored）
 ├── engine/
 │   ├── workflow.py            # Workflow 主邏輯（init + execute，延遲載入）
 │   ├── orchestrator.py        # BugfixOrchestrator（Orchestrator-Worker 主控）
@@ -40,15 +46,12 @@ agent-fix/
 │   │   ├── claude_adapter.py  # Anthropic Claude SDK
 │   │   └── openai_adapter.py  # OpenAI Agents SDK
 │   └── __init__.py
-├── skills/
-│   ├── bugfix-analyze/SKILL.md   # RCA 分析
-│   ├── bugfix-implement/SKILL.md # 實作修復
-│   ├── bugfix-test/SKILL.md      # 驗證修復
-│   └── project-init/SKILL.md    # 自動生成專案配置
-└── issues/
-    ├── TEMPLATE.json          # Issue 報告範本
-    ├── sources/               # Bug 報告 JSON（輸入）
-    └── reports/<issue-id>/    # 各 Phase 報告 Markdown（輸出）
+└── skills/
+    ├── bugfix-analyze/SKILL.md   # RCA 分析
+    ├── bugfix-implement/SKILL.md # 實作修復
+    ├── bugfix-test/SKILL.md      # 驗證修復
+    ├── issue-extract/SKILL.md    # 外部 issue 格式轉換
+    └── project-init/SKILL.md    # 自動生成專案配置
 ```
 
 ### Workflow（Orchestrator-Worker）
@@ -131,37 +134,36 @@ uv tool install --editable ".[openai]"    # OpenAI Agents
 
 ### 2. 初始化專案配置
 
+LLM 自動掃描目標專案，生成 `projects/<slug>/config.yaml`：
+
 ```bash
-# LLM 自動偵測目標專案結構，生成 config.yaml
-agent-fix init /path/to/my-project --output ./projects/my-project.yaml
+agent-fix init /path/to/my-project
 
 # 指定 issue prefix（對應 Jira project key 或自訂前綴）
-agent-fix init /path/to/my-project --issue-prefix PROJ --output ./projects/my-project.yaml
+agent-fix init /path/to/my-project --issue-prefix PROJ
 
 # 驗證生成的配置
-agent-fix validate ./projects/my-project.yaml
+agent-fix validate projects/my-project/config.yaml
 ```
 
 ### 3. 設定環境
 
 ```bash
 cp .env.example .env
-# 編輯 .env：
-#   PROJECT_CONFIG=./projects/my-project.yaml
-#   SDK_ADAPTER=copilot   # 或 claude / openai
+# 編輯 .env，設定以下變數：
+#   SDK_ADAPTER=copilot          # 或 claude / openai
+#   PROJ_TEST_USERNAME=...       # 行為驗證測試帳號
+#   PROJ_TEST_PASSWORD=...       # 行為驗證測試密碼
 ```
 
 ### 4. 執行修復
 
 ```bash
-# 建立 issue（local_json 模式）
-cp issues/TEMPLATE.json issues/sources/BUG-001.json
-# 填入 issue 資訊
-
-# 執行
-agent-fix run BUG-001
-agent-fix run BUG-001 --config ./projects/my-project.yaml   # 明確指定
-afix run BUG-001                                            # 簡短別名
+# local_json 模式：將 issue JSON 放入 projects/<slug>/issues/
+cp schemas/issue_template.json projects/my-project/issues/PROJ-001.json
+# 填入 issue 資訊後執行：
+agent-fix run PROJ-001 --config projects/my-project/config.yaml
+afix run PROJ-001 --config projects/my-project/config.yaml   # 簡短別名
 ```
 
 ### 切換 SDK
@@ -175,10 +177,10 @@ export SDK_ADAPTER=copilot  # GitHub Copilot（預設）
 ## CLI Commands
 
 ```
-agent-fix init     <project_path> [--output <path>] [--issue-prefix <prefix>]
-agent-fix validate <config-file>
-agent-fix run      <issue-id> [--config <path>]
-agent-fix batch    [--config <path>] [--dry-run] [--filter <pattern>]
+agent-fix init      <project_path> [--issue-prefix <prefix>]
+agent-fix validate  <config-file>
+agent-fix run       <issue-id> [--config <path>]
+agent-fix batch     [--config <path>] [--dry-run] [--filter <pattern>]
 agent-fix check-deps [--fix]
 ```
 
@@ -186,17 +188,16 @@ agent-fix check-deps [--fix]
 
 詳見 [config-template.yaml](config-template.yaml) 查看所有選項。
 
-### MCP Servers（可選）
+### MCP Servers
 
-在 config.yaml 中啟用 chrome-devtools-mcp，讓 bugfix-analyze 能觀察 runtime 行為：
+project-init 依框架類型自動決定 MCP 啟用狀態，寫入生成的 `config.yaml`：
 
-```yaml
-mcp_servers:
-  chrome-devtools:
-    command: npx
-    args: ["-y", "chrome-devtools-mcp@latest"]
-    enabled: true
-```
+| MCP | 預設狀態 | 說明 |
+|-----|---------|------|
+| `chrome-devtools` | 前端專案 `true`，非前端 `false` | analyze 階段觀察 runtime 行為 |
+| `serena` | 永遠 `true` | 語意程式碼導航（analyze / implement 階段） |
+
+進階 Chrome 設定（連接既有 session）可在 config.yaml 中解開對應註解。
 
 ## Custom Tools
 
