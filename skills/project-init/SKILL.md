@@ -50,7 +50,14 @@ chatapp       →  projects/chatapp/
 
 將偵測到的文件路徑登記到 `context_sources.md`（見輸出格式）。
 
-> 不評估文件品質——有就登記，各 phase agent 按需讀取，Serena 補充不足的部分。
+**Serena 啟用判斷**：
+
+| Step 0 結果 | `mcp_servers.serena.enabled` |
+|---|---|
+| 找到任何 context 文件 | `false` — agents 已有足夠 context |
+| 完全未找到任何 context 文件 | `true` — 以 Serena 語意查詢作為補充 |
+
+> 不評估文件品質——有就登記，各 phase agent 按需讀取。
 
 > **未來擴充**：若對象專案完全無任何 context 文件，且 Serena 也不足以補充，可在此步驟後插入 spec 生成流程（如 OpenSpec、SpecKit）。目前此路徑尚未實作。
 
@@ -103,14 +110,11 @@ read_file(project_path + "/package.json")
 
 讀取根目錄或主要 workspace 的 `package.json` scripts：
 
-| script 名稱 | typescript.command |
-|-------------|-------------------|
-| `type-check` / `typecheck` | `yarn workspace <ws> type-check` 或 `npx tsc --noEmit` |
-| `build`（next）| `yarn workspace <ws> build` |
-
-| script 名稱 | eslint.command |
-|-------------|---------------|
-| `lint` / `eslint` | `yarn workspace <ws> lint` |
+| script 名稱 | 對應欄位 | 命令格式 |
+|-------------|---------|---------|
+| `type-check` / `typecheck` | `typescript.command` | `yarn workspace <ws> type-check` 或 `npx tsc --noEmit` |
+| `build`（next） | `typescript.command`（備用） | `yarn workspace <ws> build` |
+| `lint` / `eslint` | `eslint.command` | `yarn workspace <ws> lint` |
 
 ### Step 5：偵測路徑結構
 
@@ -184,31 +188,6 @@ login_trigger:
 |---|---|
 | 手機登入含國家/地區選擇器 | 加入開啟下拉、搜尋、選擇的動作序列 |
 | email 登入無額外前置操作 | `pre_fill_actions: []`（可省略） |
-
-#### 7-6：產生 behavior_validation.auth 設定
-
-```yaml
-behavior_validation:
-  enabled: true
-  port: <dev server port>
-  headless: true
-  channel: null
-  auth:
-    login_url: <URL-based 填路徑；Modal-based 填觸發頁面路徑，通常為 />
-    login_trigger:
-      - "<step-1 selector>"
-      - "<step-2 selector>"
-    pre_fill_actions:
-      - action: click
-        selector: "<selector>"
-    username_selector: "<input selector>"
-    password_selector: "<input selector>"
-    submit_selector: "<button selector>"
-    username_env: <PROJECT_KEY>_TEST_USERNAME
-    password_env: <PROJECT_KEY>_TEST_PASSWORD
-```
-
-> `username_env` 命名規則：`project_name` 轉大寫 + 底線，如 `morse-webapp` → `MORSE_WEBAPP_TEST_USERNAME`。帳密由使用者設定至 `.env`，**不寫入 config.yaml**。
 
 ---
 
@@ -289,7 +268,7 @@ mcp_servers:
   serena:
     command: uvx
     args: ["--from", "serena-agent", "serena-mcp"]
-    enabled: false  # 由使用者視需求啟用
+    enabled: <Step 0 未找到任何 context 文件時為 true，否則 false>
 ```
 
 ### context_sources.md（寫入 `projects/<slug>/context_sources.md`）
@@ -299,17 +278,14 @@ mcp_servers:
 
 偵測時間：<timestamp>
 
-## 已登記的 Context 文件
+## Context 文件
+
+<!-- 若有找到文件，列表如下；若無，說明未偵測到並標記 Serena 已啟用 -->
 
 | 文件 | 路徑 | 類型 |
 |-----|------|------|
 | CLAUDE.md | <absolute_path> | Claude 專案指引 |
 | AGENTS.md | <absolute_path> | Agent 行為規範 |
-| ...        | ...             | ...             |
-
-## 未偵測到任何 Context 文件
-
-（若無文件，此節說明對象專案無現有架構文件，建議啟用 Serena MCP 補充語義查詢。）
 ```
 
 ---
@@ -320,8 +296,7 @@ mcp_servers:
 2. Monorepo 命令使用 `{{main_workspace}}`：config loader 會自動替換
 3. 若偵測不到某項資訊：填入最合理的預設值，並在初始化報告列出「無法偵測的項目」
 4. `issue_prefix` 未指定時：從 `project_name` 取首個大寫 token，如 `chatapp` → `CHATAPP`
-5. 寫入後確認：呼叫 `write_file` 並確認回傳成功
-6. auth selector 必須填真實值：所有 selector 必須來自實際讀取的原始碼
+5. auth selector 必須填真實值：所有 selector 必須來自實際讀取的原始碼
 
 ---
 
@@ -334,7 +309,7 @@ mcp_servers:
 - **Slug**: <slug>
 - **框架**: <framework>
 - **Monorepo**: <是/否>
-- **Context 文件**: <偵測到的文件列表，或「未偵測到」>
+- **Context 文件**: <偵測到的文件列表，或「未偵測到（Serena 已啟用）」>
 - **Auth 偵測**:
   - 類型：<URL-based / Modal-based / 未偵測到 / 非前端專案>
   - form selectors：<username / password / submit 是否偵測成功>
@@ -345,6 +320,5 @@ mcp_servers:
   2. 確認 `behavior_validation.port` 與 `dev_server.command`
   3. 在 `.env` 設定測試帳密：`<PROJECT_KEY>_TEST_USERNAME` / `<PROJECT_KEY>_TEST_PASSWORD`
   4. 若 auth 有欄位需手動補填，編輯 `projects/<slug>/config.yaml`
-  5. 視需求在 config.yaml 中啟用 Serena MCP（`mcp_servers.serena.enabled: true`）
-  6. 執行驗證：`agent-fix validate projects/<slug>/config.yaml`
+  5. 執行驗證：`agent-fix validate projects/<slug>/config.yaml`
 ```
