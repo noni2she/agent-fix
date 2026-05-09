@@ -300,11 +300,10 @@ async def _execute_workflow(
     except IssueSourceError as e:
         print(f"\n❌ Failed to fetch issue: {e}")
         sys.exit(1)
-    # 提取圖片附件（analyze 階段使用），不寫入 issue_json
+    # 提取圖片附件（analyze 階段使用），不寫入 raw_issue
     issue_images: list[dict] = issue_report.pop("_images", None) or []
     if issue_images:
         print(f"  📎 附件圖片：{len(issue_images)} 張，將隨 analyze prompt 傳入")
-    issue_json = json.dumps(issue_report, ensure_ascii=False, indent=2)
 
     # 鎖定 issue_id，確保 run_behavior_validation 截圖目錄不受 AI scenario name 影響
     set_current_issue_id(issue_id)
@@ -313,6 +312,7 @@ async def _execute_workflow(
     _, analyze_body = load_skill("bugfix-analyze", SKILLS_DIR)
     _, implement_body = load_skill("bugfix-implement", SKILLS_DIR)
     _, test_body = load_skill("bugfix-test", SKILLS_DIR)
+    _, issue_extract_body = load_skill("issue-extract", SKILLS_DIR)
 
     # AGENTS.md 行為契約（根目錄，存在才注入）
     _agents_md_path = AGENT_ROOT / "AGENTS.md"
@@ -348,11 +348,12 @@ async def _execute_workflow(
             "analyze": analyze_body,
             "implement": implement_body,
             "test": test_body,
+            "issue_extract": issue_extract_body,
         },
         project_context=project_context,
     )
 
-    tokens = await orchestrator.run(issue_id, issue_json=issue_json, images=issue_images or None)
+    tokens = await orchestrator.run(issue_id, raw_issue=issue_report, images=issue_images or None)
 
     if _owns_mcp and mcp_manager:
         await mcp_manager.stop()

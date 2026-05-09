@@ -12,6 +12,7 @@ BugfixOrchestrator — Stage 5 Orchestrator-Worker 架構
   - Orchestrator 在每個 gate 語義判斷：PROCEED / RETRY / NEED_MORE_INFO / CHECKPOINT
   - Outcome 追蹤：run() 回傳 "fixed" | "failed" | "skipped"
 """
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,6 +61,7 @@ class BugfixOrchestrator:
 
         self._gates = self._parse_gates(skills["analyze"])
         self._tokens: dict = {"input": 0, "output": 0}
+        self.issue_source_type = config.issue_source.type
 
         # Load Orchestrator AGENTS.md
         agents_path = agent_root / "agents" / "issue-fix" / "AGENTS.md"
@@ -75,7 +77,7 @@ class BugfixOrchestrator:
     # Public entry point
     # ──────────────────────────────────────────
 
-    async def run(self, issue_id: str, issue_json: str, images: list | None = None) -> dict:
+    async def run(self, issue_id: str, raw_issue: dict, images: list | None = None) -> dict:
         print(f"\n{'═'*60}")
         print(f"  🎯 [Orchestrator] Issue: {issue_id}")
         print(f"{'═'*60}")
@@ -94,6 +96,9 @@ class BugfixOrchestrator:
                 f"Reports are in: {self.report_dir / issue_id}/\n"
             )
             await run_in_session(orch_session, "orchestrate-init", init_prompt, max_tool_calls=0)
+
+        # ── Issue Extract phase（非 local_json 時，轉換為標準格式）──
+        issue_json = await self._run_issue_extract(issue_id, raw_issue)
 
         # ── Analyze phase（Progressive Disclosure）──
         analyze_status = await self._run_analyze(issue_id, issue_json, images, orch_session)
@@ -179,6 +184,64 @@ class BugfixOrchestrator:
 
         self._accumulate(orch_session)
         return {**self._tokens, "outcome": "failed"}
+
+    # ──────────────────────────────────────────
+    # Issue Extract phase
+    # ──────────────────────────────────────────
+
+    async def _run_issue_extract(self, issue_id: str, raw_issue: dict) -> str:
+        """
+        若 issue 來源為 jira / github，spawn issue-extract subagent 將 raw JSON
+        轉換為標準 TEMPLATE.json 格式，再回傳序列化後的 JSON 字串。
+
+        local_json 來源已是標準格式，直接序列化回傳，不 spawn subagent。
+        """
+        if self.issue_source_type == "local_json":
+            return json.dumps(raw_issue, ensure_ascii=False, indent=2)
+
+        print(f"\n{'─'*60}")
+        print(f"  [Orchestrator] Phase: issue-extract ({self.issue_source_type})")
+        print(f"{'─'*60}")
+
+        raw_json_str = json.dumps(raw_issue, ensure_ascii=False, indent=2)
+        skill_body = self.skills.get("issue_extract", "")
+
+        prompt = (
+            f"{skill_body}\n\n"
+            f"---\n\n"
+            f"## Task\n\n"
+            f"Convert the following raw {self.issue_source_type} JSON to the standard template format.\n"
+            f"Output ONLY a single fenced ```json block containing the converted result. "
+            f"No explanation, no prose outside the block.\n\n"
+            f"Raw input:\n\n```json\n{raw_json_str}\n```\n"
+        )
+
+        _, session = await create_session([])  # 純格式轉換，不需 tools
+        response = await run_in_session(
+            session, "issue-extract", prompt, max_tool_calls=0,
+            prompt_sources=[
+                f"skills/issue-extract/SKILL.md",
+                f"Issue: {issue_id} (raw {self.issue_source_type} JSON)",
+            ],
+        )
+        self._accumulate(session)
+
+        try:
+            extracted = self._parse_json_from_response(response)
+            print(f"  ✅ Issue extracted: {extracted.get('issue_id', issue_id)}")
+            return json.dumps(extracted, ensure_ascii=False, indent=2)
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"  ⚠️  Issue extract parse failed ({e}), falling back to raw JSON")
+            return raw_json_str
+
+    @staticmethod
+    def _parse_json_from_response(response: str) -> dict:
+        """從 LLM 回應中解析 fenced JSON block；找不到時嘗試直接 parse 整個回應。"""
+        match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+        if match:
+            return json.loads(match.group(1))
+        # fallback：嘗試直接 parse 整個 response（去除首尾空白）
+        return json.loads(response.strip())
 
     # ──────────────────────────────────────────
     # Orchestrator judgment helper
