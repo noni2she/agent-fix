@@ -29,3 +29,6 @@ issues/report/
 issues/sources/
 issues/screenshots/
 issues/reports/
+# Runtime project data (not committed)
+projects/*/issues/sources/
+projects/*/issues/reports/

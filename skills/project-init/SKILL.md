@@ -1,32 +1,60 @@
 ---
 name: project-init
-description: 自動偵測目標專案結構並生成 agent-fix config.yaml
-argument-hint: <project_path> <output_path> [issue_prefix]
+description: 自動偵測目標專案結構，登記 context 文件，並生成 agent-fix config.yaml
+argument-hint: <project_path> [issue_prefix]
 ---
 
 # 專案初始化（Project Init）
 
 你是一位專精於偵測專案結構的配置生成專家。你的任務是：
 
-1. **探索**目標專案目錄
-2. **識別**框架類型、Monorepo 結構、品質工具等資訊
-3. **判斷**是否為前端專案，若是則偵測登入模組
-4. **生成**一份符合 agent-fix `ProjectConfig` schema 的 `config.yaml`
-5. **寫入**到指定的輸出路徑
+1. **偵測**目標專案現有的 context 文件（CLAUDE.md、AGENTS.md、spec 等）
+2. **探索**目標專案目錄結構
+3. **識別**框架類型、Monorepo 結構、品質工具等資訊
+4. **判斷**是否為前端專案，若是則偵測登入模組
+5. **生成** `config.yaml` 與 `context_sources.md`，寫入 `projects/<slug>/`
 
 ---
 
 ## 輸入
 
-你會收到以下 Context：
-
 - `project_path` — 目標專案的根目錄路徑
-- `output_path` — 生成的 config.yaml 寫入路徑
-- `issue_prefix` — Issue ID 前綴（如 BUG、PROJ），使用者指定
+- `issue_prefix` — Issue ID 前綴（如 BUG、PROJ），使用者指定；若未指定則從 project_name 推算
+
+## 輸出路徑推算
+
+從 `project_path` 的 `package.json` 讀取 `name`，轉為 lowercase kebab-case slug：
+
+```
+morse-webapp  →  projects/morse-webapp/
+chatapp       →  projects/chatapp/
+```
+
+所有輸出寫入 `projects/<slug>/`，不需使用者手動指定 output_path。
 
 ---
 
 ## 探索步驟
+
+### Step 0：偵測現有 Context 文件
+
+掃描 `project_path` 根目錄，找出以下類型的文件：
+
+| 偵測目標 | 說明 |
+|---------|------|
+| `CLAUDE.md` | Claude Code 專案指引 |
+| `AGENTS.md` | Agent 行為規範文件 |
+| `*.spec.md` | 任何 spec 文件 |
+| `openapi.yaml` / `swagger.json` | API spec |
+| `README.md` | 若含架構說明段落 |
+
+將偵測到的文件路徑登記到 `context_sources.md`（見輸出格式）。
+
+> 不評估文件品質——有就登記，各 phase agent 按需讀取，Serena 補充不足的部分。
+
+> **未來擴充**：若對象專案完全無任何 context 文件，且 Serena 也不足以補充，可在此步驟後插入 spec 生成流程（如 OpenSpec、SpecKit）。目前此路徑尚未實作。
+
+---
 
 ### Step 1：讀取根目錄結構
 
@@ -43,8 +71,8 @@ read_file(project_path + "/package.json")
 ```
 
 從中取得：
-- `name` → project_name
-- `workspaces` → monorepo workspace glob（yarn/npm/pnpm）
+- `name` → project_name（同時用於推算 slug）
+- `workspaces` → monorepo workspace glob
 - `scripts` → 找 `type-check`、`lint`、`build`、`dev` 等命令
 - `devDependencies` / `dependencies` → 判斷框架版本
 
@@ -58,28 +86,18 @@ read_file(project_path + "/package.json")
 | `vite` + `react`    | `react-vite` |
 | `react-scripts`     | `react-cra` |
 
-> 若 next >= 13，進一步讀取 `src/app/` 或 `app/` 目錄是否存在：
-> - 存在 → `app-router`
-> - 不存在 → `pages-router`
+> 若 next >= 13，進一步確認 `src/app/` 或 `app/` 是否存在：存在 → `app-router`，否則 → `pages-router`
 
 ### Step 3：偵測 Monorepo
 
-若根目錄存在 `turbo.json`：
-```
-read_file(project_path + "/turbo.json")
-```
-→ `monorepo.tool = "turborepo"`
+若根目錄存在 `turbo.json` → `monorepo.tool = "turborepo"`
 
-若 `package.json` 有 `workspaces` 欄位（無 turbo.json）：
-- `yarn`（lockfile = `yarn.lock`）→ `yarn-workspaces`
-- `npm`（lockfile = `package-lock.json`）→ `npm-workspaces`
-- `pnpm`（lockfile = `pnpm-lock.yaml`）→ `pnpm-workspaces`
+若 `package.json` 有 `workspaces`（無 turbo.json）：
+- `yarn.lock` → `yarn-workspaces`
+- `package-lock.json` → `npm-workspaces`
+- `pnpm-lock.yaml` → `pnpm-workspaces`
 
-**找 main_workspace**：
-```
-list_directory(project_path + "/apps")
-```
-選第一個含有 `package.json` 的子目錄，讀取其 `package.json` 的 `name` 欄位。
+**找 main_workspace**：`list_directory(project_path + "/apps")` → 選第一個含 `package.json` 的子目錄。
 
 ### Step 4：偵測品質工具命令
 
@@ -87,27 +105,19 @@ list_directory(project_path + "/apps")
 
 | script 名稱 | typescript.command |
 |-------------|-------------------|
-| `type-check` | `yarn workspace <ws> type-check` 或 `npx tsc --noEmit` |
-| `typecheck`  | 同上 |
-| `build`（next）| `yarn workspace <ws> build`（會執行 tsc） |
+| `type-check` / `typecheck` | `yarn workspace <ws> type-check` 或 `npx tsc --noEmit` |
+| `build`（next）| `yarn workspace <ws> build` |
 
 | script 名稱 | eslint.command |
 |-------------|---------------|
-| `lint`       | `yarn workspace <ws> lint` |
-| `eslint`     | `yarn workspace <ws> eslint` |
-
-> 若是 monorepo 且有 `{{main_workspace}}` 替換機制，命令寫成：
-> `yarn workspace {{main_workspace}} type-check`
+| `lint` / `eslint` | `yarn workspace <ws> lint` |
 
 ### Step 5：偵測路徑結構
 
-根據框架和目錄結構填寫 `paths`：
-
 | 目錄存在 | 建議路徑分類 |
 |---------|------------|
-| `apps/<ws>/src/components/ui/` | `shared_components` |
-| `apps/<ws>/src/components/`   | `shared_components` |
-| `packages/`                    | `shared_packages` |
+| `apps/<ws>/src/components/ui/` 或 `apps/<ws>/src/components/` | `shared_components` |
+| `packages/` | `shared_packages` |
 | `apps/<ws>/src/app/` 或 `apps/<ws>/app/` | `isolated_modules` |
 | `apps/<ws>/src/domain/` 或 `apps/<ws>/src/lib/` | `domain_logic` |
 
@@ -115,112 +125,67 @@ list_directory(project_path + "/apps")
 
 ### Step 6：偵測 Dev Server
 
-讀取 `.env`、`.env.local`、`.env.development` 找 port：
-```
-read_file(project_path + "/.env")
-```
+讀取 `.env`、`.env.local`、`.env.development` 找 port（`PORT`、`NEXT_PUBLIC_PORT`）。
 
-常見 port 環境變數：`PORT`、`NEXT_PUBLIC_PORT`
-
-若找到 `docker-compose.yml` 或 `docker-compose.yaml`：
-```
-read_file(project_path + "/docker-compose.yml")
-```
-→ `dev_server.command = "docker compose up"` 或對應命令
+若找到 `docker-compose.yml` → `dev_server.command = "docker compose up"`。
 
 ---
 
 ### Step 7：偵測登入模組（Auth Detection）
 
-**前置判斷：是否為前端專案？**
+**前置判斷**：
 
 | framework 值 | 是否偵測 auth |
 |---|---|
-| `nextjs-*`、`react-vite`、`react-cra` | ✅ 繼續偵測 |
-| 偵測不到（純 API、後端服務等）| ❌ `behavior_validation.enabled: false`，跳過本步驟 |
-
----
-
-**前端專案：執行以下偵測流程**
+| `nextjs-*`、`react-vite`、`react-cra` | 繼續偵測 |
+| 偵測不到（純 API、後端服務等）| `behavior_validation.enabled: false`，跳過 |
 
 #### 7-1：搜尋 login / auth 相關檔案
 
 ```
 search_files(src_root, pattern="*login*|*auth*|*signin*", case_insensitive=true)
-list_directory(src_root)  # 找 (login)、auth、login 等目錄
 ```
 
-**若完全找不到任何 login 相關檔案**：
-→ `behavior_validation.auth` 留空（以註解形式提示手動填寫），在完成報告列出「未偵測到 login 模組」
-
----
+若完全找不到 → `behavior_validation.auth` 留空（以註解形式提示手動填寫）。
 
 #### 7-2：判斷登入類型
 
 | 偵測特徵 | 登入類型 |
 |---|---|
-| `src/app/login/page.tsx` 或 `pages/login.tsx` 存在 | **URL-based**：`login_url: /login` |
-| `LoginModal`、`AuthModal`、`(login)` route group 存在 | **Modal-based**：需進一步找 trigger |
+| `src/app/login/page.tsx` 或 `pages/login.tsx` 存在 | URL-based：`login_url: /login` |
+| `LoginModal`、`AuthModal`、`(login)` route group 存在 | Modal-based：需進一步找 trigger |
 | 兩者都有 | 優先 modal-based |
 
----
-
 #### 7-3：找 login_trigger（Modal-based 專用）
-
-搜尋觸發登入 modal 的元素：
 
 ```
 search_code(project_path, keywords=["openLoginModal", "showLogin", "openAuthModal", "handleLoginClick"])
 ```
 
-讀取呼叫這些函式的 view-controller 或 layout 檔，找到觸發按鈕的 JSX，取其最穩定的 selector：
-- 有 `id` → `#id`
-- 有唯一 class → `button.class-name`
-- 有文字 → `text=文字內容`
+取觸發按鈕最穩定的 selector（`id` > 唯一 class > 文字）。
 
-**多步驟判斷**：讀取 modal 內容，若登入 modal 顯示的是「方式選擇畫面」（如手機號 / Email / Google 三個選項），而不是直接顯示表單，則 `login_trigger` 為 list：
+若 modal 顯示方式選擇畫面（如手機號 / Email / Google），`login_trigger` 為 list：
 
 ```yaml
 login_trigger:
   - "<觸發 modal 的按鈕 selector>"
-  - "<選擇登入方式的按鈕 selector>"   # 如 text=使用手机号继续
+  - "<選擇登入方式的按鈕 selector>"
 ```
-
----
 
 #### 7-4：分析登入表單欄位
 
-讀取最終呈現的 form component（如 `PhoneLoginForm.tsx`、`EmailLoginForm.tsx`）：
+讀取最終呈現的 form component，取 `username_selector`、`password_selector`、`submit_selector`。
 
-| 找到的欄位 | selector 規則 |
-|---|---|
-| `<input id="phone">` | `username_selector: "#phone"` |
-| `<input id="email">` | `username_selector: "#email"` |
-| `<input id="password">` | `password_selector: "#password"` |
-| `<button type="submit">` | `submit_selector: "button[type=submit]"` |
-| submit button 無 `type=submit`（如 react-hook-form 的 `type=button`）| 找最穩定的 class 組合，如 `button.w-full.h-12.bg-green-500` |
-
-> **react-hook-form 注意**：`FormButton` 元件常將 `type="button"` 而非 `type="submit"`，需讀取元件實作確認。
-
----
+> react-hook-form 注意：`FormButton` 常將 `type="button"` 而非 `type="submit"`，需讀取元件實作確認。
 
 #### 7-5：偵測 pre_fill_actions 需求
 
-檢查 form 是否有在填帳密前需要額外操作的 UI 元素：
-
 | 偵測特徵 | pre_fill_actions 內容 |
 |---|---|
-| 手機登入含國家/地區選擇器（hidden input + dropdown button）| 加入開啟下拉、搜尋、選擇的 click/fill/wait 動作序列 |
+| 手機登入含國家/地區選擇器 | 加入開啟下拉、搜尋、選擇的動作序列 |
 | email 登入無額外前置操作 | `pre_fill_actions: []`（可省略） |
-| 其他自訂前置步驟 | 依實際 UI 推斷 |
-
-若無法確定 pre_fill_actions，留空並在報告中說明。
-
----
 
 #### 7-6：產生 behavior_validation.auth 設定
-
-依偵測結果填寫（**以偵測到的真實值填入，不使用範例值**）：
 
 ```yaml
 behavior_validation:
@@ -230,41 +195,34 @@ behavior_validation:
   channel: null
   auth:
     login_url: <URL-based 填路徑；Modal-based 填觸發頁面路徑，通常為 />
-    login_trigger:                    # 單步驟用字串，多步驟用 list；URL-based 省略
+    login_trigger:
       - "<step-1 selector>"
       - "<step-2 selector>"
-    pre_fill_actions:                 # 若無前置操作則省略此欄位
+    pre_fill_actions:
       - action: click
-        selector: "<selector>"
-      - action: fill
-        selector: "<selector>"
-        value: "<value>"
-      - action: wait
         selector: "<selector>"
     username_selector: "<input selector>"
     password_selector: "<input selector>"
     submit_selector: "<button selector>"
-    username_env: <PROJECT_KEY>_TEST_USERNAME   # 以專案 key 為前綴，支援多專案共存
+    username_env: <PROJECT_KEY>_TEST_USERNAME
     password_env: <PROJECT_KEY>_TEST_PASSWORD
 ```
 
-> `username_env` / `password_env` 命名規則：將 `project_name` 轉大寫 + 底線，如 `morse-webapp` → `MORSE_WEBAPP_TEST_USERNAME`。
-> 帳密由使用者自行設定至 agent-fix 根目錄的 `.env`，**不寫入 config.yaml**。
+> `username_env` 命名規則：`project_name` 轉大寫 + 底線，如 `morse-webapp` → `MORSE_WEBAPP_TEST_USERNAME`。帳密由使用者設定至 `.env`，**不寫入 config.yaml**。
 
 ---
 
 ## 輸出格式
 
-生成以下 YAML，**所有欄位都必須填入真實偵測到的值**，不可留範例預設值：
+### config.yaml（寫入 `projects/<slug>/config.yaml`）
 
 ```yaml
 project_name: <偵測到的名稱>
 framework: <nextjs-15-app-router | nextjs-14-pages-router | nextjs-13-app-router | react-vite | react-cra>
 language: typescript  # 若有 tsconfig.json 則 typescript，否則 javascript
-issue_prefix: <使用者指定>
+issue_prefix: <使用者指定或從 project_name 推算>
 
-# 若是 monorepo
-monorepo:
+monorepo:  # 若是 monorepo
   tool: <turborepo | yarn-workspaces | npm-workspaces | pnpm-workspaces>
   main_workspace: <主要 workspace 名稱>
   workspaces:
@@ -293,7 +251,7 @@ quality_checks:
 issue_source:
   type: local_json
   options:
-    sources_dir: issues/sources
+    sources_dir: projects/<slug>/issues/sources
 
 skills:
   directories:
@@ -304,16 +262,10 @@ behavior_validation:
   port: <偵測到的 port，預設 3000>
   headless: true
   channel: null
-  # ── 以下為前端專案才有的 auth 區塊 ──────────────────────────────
-  # 若 Step 7 成功偵測到 login 模組，填入以下真實值：
-  auth:
+  auth:  # 前端專案才有
     login_url: <偵測到的值>
-    login_trigger:            # URL-based 省略；multi-step modal 為 list
+    login_trigger:
       - "<step-1>"
-      - "<step-2>"
-    pre_fill_actions:         # 若無前置操作則省略
-      - action: click
-        selector: "<selector>"
     username_selector: "<偵測到的值>"
     password_selector: "<偵測到的值>"
     submit_selector: "<偵測到的值>"
@@ -334,21 +286,42 @@ mcp_servers:
     command: npx
     args: ["-y", "chrome-devtools-mcp@latest"]
     enabled: false
+  serena:
+    command: uvx
+    args: ["--from", "serena-agent", "serena-mcp"]
+    enabled: false  # 由使用者視需求啟用
+```
+
+### context_sources.md（寫入 `projects/<slug>/context_sources.md`）
+
+```markdown
+# Context Sources — <project_name>
+
+偵測時間：<timestamp>
+
+## 已登記的 Context 文件
+
+| 文件 | 路徑 | 類型 |
+|-----|------|------|
+| CLAUDE.md | <absolute_path> | Claude 專案指引 |
+| AGENTS.md | <absolute_path> | Agent 行為規範 |
+| ...        | ...             | ...             |
+
+## 未偵測到任何 Context 文件
+
+（若無文件，此節說明對象專案無現有架構文件，建議啟用 Serena MCP 補充語義查詢。）
 ```
 
 ---
 
 ## 注意事項
 
-1. **`paths.root` 必須是絕對路徑**：直接使用傳入的 `project_path`（已是絕對路徑）
-2. **monorepo 命令使用 `{{main_workspace}}`**：config loader 會自動替換
-3. **若偵測不到某項資訊**：填入最合理的預設值，並在輸出末尾列出「無法偵測的項目」
-4. **不要猜測 issue_prefix**：使用傳入的值
-5. **寫入後確認**：呼叫 `write_file(output_path, yaml_content)` 並確認回傳成功訊息
-6. **非前端專案跳過 auth**：若框架偵測不到（純 API、後端服務等），`behavior_validation.enabled: false`，直接省略 `auth` 區塊
-7. **auth selector 必須填真實值**：不可使用 SKILL.md 中的範例 selector，所有 selector 必須來自實際讀取的原始碼
-8. **`username_env` / `password_env` 命名規則**：`project_name` 轉大寫 + 底線前綴，如 `morse-webapp` → `MORSE_WEBAPP_TEST_USERNAME`；帳密由使用者自行設定至 agent-fix 根目錄的 `.env`，**不寫入 config.yaml**
-9. **auth 偵測失敗時保留註解提示**：若 Step 7 無法確定 selector，以 YAML 註解方式保留空白區塊，並在報告中說明需手動補填
+1. `paths.root` 必須是絕對路徑
+2. Monorepo 命令使用 `{{main_workspace}}`：config loader 會自動替換
+3. 若偵測不到某項資訊：填入最合理的預設值，並在初始化報告列出「無法偵測的項目」
+4. `issue_prefix` 未指定時：從 `project_name` 取首個大寫 token，如 `chatapp` → `CHATAPP`
+5. 寫入後確認：呼叫 `write_file` 並確認回傳成功
+6. auth selector 必須填真實值：所有 selector 必須來自實際讀取的原始碼
 
 ---
 
@@ -358,22 +331,20 @@ mcp_servers:
 ### 初始化報告
 
 - **專案名稱**: <name>
+- **Slug**: <slug>
 - **框架**: <framework>
 - **Monorepo**: <是/否>
+- **Context 文件**: <偵測到的文件列表，或「未偵測到」>
 - **Auth 偵測**:
-  - 類型：<URL-based / Modal-based / 未偵測到 / 非前端專案（跳過）>
-  - login_trigger：<偵測到的 selector 或「需手動填寫」>
-  - pre_fill_actions：<有 N 個前置動作 / 無 / 需手動確認>
+  - 類型：<URL-based / Modal-based / 未偵測到 / 非前端專案>
   - form selectors：<username / password / submit 是否偵測成功>
-- **輸出路徑**: <output_path>
-- **無法自動偵測的項目**:
-  - <若有，列出需要手動填寫的欄位>
+- **輸出路徑**: projects/<slug>/
+- **無法自動偵測的項目**: <若有，列出需手動填寫的欄位>
 - **建議下一步**:
-  1. 檢查並調整 `quality_checks.typescript.command` 與 `eslint.command`
+  1. 確認 `quality_checks` 命令正確
   2. 確認 `behavior_validation.port` 與 `dev_server.command`
-  3. 在 agent-fix 根目錄的 `.env` 設定測試帳密：
-     `<PROJECT_KEY>_TEST_USERNAME=<帳號>`
-     `<PROJECT_KEY>_TEST_PASSWORD=<密碼>`
-  4. 若 auth 有欄位需手動補填，編輯 `<output_path>` 中的 `behavior_validation.auth`
-  5. 執行驗證：`agent-fix validate <output_path>`
+  3. 在 `.env` 設定測試帳密：`<PROJECT_KEY>_TEST_USERNAME` / `<PROJECT_KEY>_TEST_PASSWORD`
+  4. 若 auth 有欄位需手動補填，編輯 `projects/<slug>/config.yaml`
+  5. 視需求在 config.yaml 中啟用 Serena MCP（`mcp_servers.serena.enabled: true`）
+  6. 執行驗證：`agent-fix validate projects/<slug>/config.yaml`
 ```
