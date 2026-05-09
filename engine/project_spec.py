@@ -3,7 +3,7 @@
 基於 ProjectConfig 產生 Agent 所需的架構定義和決策邏輯
 """
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict
 
 from .config import ProjectConfig
 
@@ -31,7 +31,6 @@ class ProjectSpec:
             "issue_prefix": self.config.issue_prefix,
             "monorepo": self.config.monorepo.model_dump() if self.config.monorepo else None,
             "paths": self.config.paths.model_dump(),
-            "high_risk_keywords": self.config.high_risk_keywords,
             "quality_checks": {
                 "typescript": self.config.quality_checks.typescript.model_dump(),
                 "eslint": self.config.quality_checks.eslint.model_dump(),
@@ -59,10 +58,9 @@ class ProjectSpec:
 """
         
         paths_info = self._format_paths_info()
-        keywords_info = self._format_keywords_info()
         standards_info = self._format_coding_standards()
         commands_info = self._format_quality_commands()
-        
+
         return f"""
 # {self.config.project_name} 專案架構規範
 {monorepo_info}
@@ -70,13 +68,10 @@ class ProjectSpec:
 
 {paths_info}
 
-## 3. 高風險關鍵字
-{keywords_info}
-
-## 4. 程式碼規範
+## 3. 程式碼規範
 {standards_info}
 
-## 5. 品質檢查指令
+## 4. 品質檢查指令
 {commands_info}
 """
     
@@ -114,12 +109,6 @@ class ProjectSpec:
         
         return '\n'.join(lines) if lines else "（無特定路徑分類）"
     
-    def _format_keywords_info(self) -> str:
-        """格式化高風險關鍵字資訊"""
-        if self.config.high_risk_keywords:
-            return f"遇到以下關鍵字時需特別謹慎:\n{', '.join(self.config.high_risk_keywords)}"
-        return "（無特定高風險關鍵字）"
-    
     def _format_coding_standards(self) -> str:
         """格式化程式碼規範"""
         lines = []
@@ -155,34 +144,6 @@ class ProjectSpec:
             lines.append(f"- Tests: `{self.config.quality_checks.tests.command}`")
         
         return '\n'.join(lines) if lines else "（無配置的品質檢查）"
-    
-    def should_use_tactical_fix(self, file_path: str, impacted_count: int) -> Tuple[bool, str]:
-        """
-        判斷是否應使用戰術性修復
-        
-        Args:
-            file_path: 檔案路徑（相對於專案根目錄）
-            impacted_count: 受影響的模組數量
-        
-        Returns:
-            (should_use_tactical, reason) 元組
-        """
-        # 檢查是否在共用套件
-        for shared_pkg in self.config.paths.shared_packages:
-            if file_path.startswith(shared_pkg):
-                return True, f"檔案位於共用套件: {shared_pkg}"
-        
-        # 檢查是否在共用元件且影響範圍大
-        for shared_comp in self.config.paths.shared_components:
-            if file_path.startswith(shared_comp) and impacted_count > 3:
-                return True, f"共用元件被 {impacted_count} 個模組引用 (超過安全閾值 3)"
-        
-        # 檢查是否包含高風險關鍵字
-        for keyword in self.config.high_risk_keywords:
-            if keyword.lower() in file_path.lower():
-                return True, f"檔案路徑包含高風險關鍵字: {keyword}"
-        
-        return False, "影響範圍有限，可直接修改"
     
     def get_typecheck_command(self) -> str:
         """取得 TypeScript 型別檢查命令"""

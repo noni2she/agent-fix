@@ -41,21 +41,6 @@ paths:
   isolated_modules:
     - "apps/main-app/src/app/" # Next.js App Router 頁面
 
-  # 領域邏輯路徑
-  domain_logic:
-    - "apps/main-app/src/domain/"
-    - "apps/main-app/src/stores/"
-
-# ============================================
-# 高風險關鍵字
-# ============================================
-high_risk_keywords:
-  - "auth"
-  - "login"
-  - "websocket"
-  - "store"
-  - "middleware"
-
 # ============================================
 # 品質檢查命令
 # ============================================
@@ -104,7 +89,7 @@ issue_source:
   # ── local_json（預設）─────────────────────────────────────────────
   # type: local_json
   # options:
-  #   sources_dir: "issues/sources"  # 預設值，可省略
+  #   sources_dir: projects/<slug>/issues  # 預設值，可省略
 
   # ── Jira ─────────────────────────────────────────────────────────
   # type: jira
@@ -137,6 +122,23 @@ skills:
 dev_server:
   port: 3001
   command: null # 如果需要自訂啟動命令，可在此指定
+
+# ============================================
+# MCP Servers
+# ============================================
+mcp_servers:
+  serena:
+    command: uvx
+    args: ["--from", "serena-agent", "serena", "start-mcp-server", "--project", "../your-project"]
+    enabled: true
+  chrome-devtools:
+    command: npx
+    args: ["-y", "chrome-devtools-mcp@latest"]
+    enabled: true  # 前端專案用 true，非前端用 false
+    # 進階：連接既有 Chrome session（保留登入狀態）：
+    # args: ["-y", "chrome-devtools-mcp@latest", "--browserUrl", "http://localhost:9222"]
+    # pre_launch: "open -na 'Google Chrome' --args --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug"
+    # pre_launch_wait: 3
 
 # ============================================
 # Playwright 行為驗證配置

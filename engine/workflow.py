@@ -114,8 +114,6 @@ def load_project_context(config: ProjectConfig, project_root: Path, agent_root: 
         tactical_rows.append(f"| Path in `{p}` | **TACTICAL** | Shared package |")
     for p in cfg.paths.shared_components:
         tactical_rows.append(f"| Path in `{p}`, no customization props | **TACTICAL** | Shared component |")
-    for k in cfg.high_risk_keywords:
-        tactical_rows.append(f"| Path contains `{k}` | **TACTICAL** | High-risk module |")
     tactical_rows.append("| Other | **DIRECT** | Isolated module |")
     tactical_table = "\n".join(tactical_rows)
 
@@ -222,7 +220,7 @@ Dev server URL: http://localhost:{dev_port}
 - Shared packages: {', '.join(cfg.paths.shared_packages) or 'none'}
 - Shared components: {', '.join(cfg.paths.shared_components) or 'none'}
 - Isolated modules: {', '.join(cfg.paths.isolated_modules) or 'none'}
-{f'- Domain logic: {chr(44).join(cfg.paths.domain_logic)}' if cfg.paths.domain_logic else ''}{f'{chr(10)}- Test fixtures: `{cfg.paths.test_fixtures_path}`' if cfg.paths.test_fixtures_path else ''}{auth_section}{skills_section}{bv_section}
+{f'- Test fixtures: `{cfg.paths.test_fixtures_path}`' if cfg.paths.test_fixtures_path else ''}{auth_section}{skills_section}{bv_section}
 ---
 """
 

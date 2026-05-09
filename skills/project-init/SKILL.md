@@ -77,7 +77,6 @@ argument-hint: <project_path> [issue_prefix]
 | `apps/<ws>/src/components/` | `shared_components` |
 | `packages/` | `shared_packages` |
 | `apps/<ws>/src/app/` | `isolated_modules` |
-| `apps/<ws>/src/domain/` 或 `src/lib/` | `domain_logic` |
 
 單一應用（非 monorepo）路徑相對於 `project_path`。
 
@@ -138,7 +137,6 @@ paths:
   shared_packages:    [<e.g. packages/ui>]
   shared_components:  [<e.g. apps/web/src/components>]
   isolated_modules:   [<e.g. apps/web/src/app>]
-  domain_logic:       [<e.g. apps/web/src/lib>]
 
 quality_checks:
   typescript:

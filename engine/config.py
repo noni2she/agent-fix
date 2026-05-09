@@ -40,10 +40,6 @@ class PathsConfig(BaseModel):
         default=[],
         description="獨立模組路徑列表（低風險區域）"
     )
-    domain_logic: List[str] = Field(
-        default=[],
-        description="領域邏輯路徑列表"
-    )
     test_fixtures_path: Optional[str] = Field(
         default=None,
         description="測試素材目錄路徑（用於 reproduction 步驟的檔案上傳）"
@@ -316,10 +312,6 @@ class ProjectConfig(BaseModel):
     )
     paths: PathsConfig = Field(
         description="路徑配置"
-    )
-    high_risk_keywords: List[str] = Field(
-        default=[],
-        description="高風險關鍵字列表"
     )
     quality_checks: QualityChecksConfig = Field(
         description="品質檢查配置"
