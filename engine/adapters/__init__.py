@@ -18,9 +18,9 @@ SDK Adapter 工廠
     openai:  OPENAI_API_KEY
 
 預設模型（可在 .env 中覆寫 DEFAULT_MODEL）：
-    copilot: claude-sonnet-4.5
-    claude:  claude-opus-4-5
-    openai:  gpt-4o
+    copilot: claude-sonnet-4.6
+    claude:  claude-opus-4-6
+    openai:  gpt-5.4
 """
 import os
 from .base import AgentAdapter, AgentSession, AgentEvent
@@ -30,8 +30,8 @@ SUPPORTED_ADAPTERS = ("copilot", "claude", "openai")
 # 各 adapter 的預設模型
 DEFAULT_MODELS = {
     "copilot": "claude-sonnet-4.6",
-    "claude": "claude-opus-4-5",
-    "openai": "gpt-4o",
+    "claude": "claude-opus-4-6",
+    "openai": "gpt-5.4",
 }
 
 
