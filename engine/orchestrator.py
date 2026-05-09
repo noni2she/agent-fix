@@ -55,7 +55,7 @@ class BugfixOrchestrator:
         self.project_context = project_context
 
         project_key = config.get_project_key()
-        self.report_dir = agent_root / "issues" / "reports" / project_key
+        self.report_dir = agent_root / "projects" / project_key / "reports"
         self.report_dir.mkdir(parents=True, exist_ok=True)
 
         self._gates = self._parse_gates(skills["analyze"])
@@ -207,8 +207,8 @@ class BugfixOrchestrator:
 
         _, session = await create_session(ANALYZE_IMPLEMENT_TOOLS, mcp_manager=self.mcp_manager)
         screenshot_dir = (
-            self.agent_root / "issues" / "screenshots"
-            / self.config.get_project_key() / issue_id
+            self.agent_root / "projects"
+            / self.config.get_project_key() / "screenshots" / issue_id
         )
 
         # ── Gate REPRODUCE: Step 0 全部（能力前置 + 瀏覽器重現）──

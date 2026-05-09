@@ -191,8 +191,8 @@ Rules:
 **Project**: {cfg.project_name} ({cfg.framework})
 **Target project root** (read/modify source code here): {project_root}
 **Agent root** (write reports & screenshots here): {agent_root}
-- Reports: `{agent_root}/issues/reports/{cfg.get_project_key()}/<issue-id>/`
-- Screenshots: `{agent_root}/issues/screenshots/{cfg.get_project_key()}/<issue-id>/`
+- Reports: `{agent_root}/projects/{cfg.get_project_key()}/reports/<issue-id>/`
+- Screenshots: `{agent_root}/projects/{cfg.get_project_key()}/screenshots/<issue-id>/`
 
 ### Commands
 
@@ -284,9 +284,9 @@ async def _execute_workflow(
     mcp_manager：可從外部傳入（batch 模式共用），若為 None 則自行建立與關閉。
     Returns: {"input": int, "output": int} 本次 workflow 總 token 用量
     """
-    # issues/ 報告目錄：issues/reports/<project-key>/（固定在 agent root，不是目標專案）
+    # 報告目錄：projects/<project-key>/reports/（固定在 agent root，不是目標專案）
     project_key = config.get_project_key()
-    report_dir = AGENT_ROOT / "issues" / "reports" / project_key
+    report_dir = AGENT_ROOT / "projects" / project_key / "reports"
     report_dir.mkdir(parents=True, exist_ok=True)
 
     # 透過 issue source adapter 取得 issue 資料

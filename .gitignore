@@ -12,8 +12,6 @@ wheels/
 # IDE files
 .vscode/
 
-# Report files
-
 # AI tooling files
 .github/
 
@@ -24,6 +22,11 @@ wheels/
 .playwright-auth.json
 *.playwright-auth.json
 
+# Test fixtures（媒體素材不進 repo，.gitkeep 除外）
+tests/fixtures/*
+!tests/fixtures/.gitkeep
+
 # Runtime project data (not committed)
 projects/*/issues/
 projects/*/reports/
+projects/*/screenshots/
