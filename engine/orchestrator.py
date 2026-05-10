@@ -113,9 +113,9 @@ class BugfixOrchestrator:
                 f"---\n\n"
                 f"You are now managing issue **{issue_id}**.\n"
                 f"You will be asked to make gate judgments as the fix progresses.\n"
-                f"Reports are in: {self.report_dir / issue_id}/\n"
+                f"Do not call any tools now. Simply acknowledge that you understand your role.\n"
             )
-            await run_in_session(orch_session, "orchestrate-init", init_prompt, max_tool_calls=3)
+            await run_in_session(orch_session, "orchestrate-init", init_prompt, max_tool_calls=0)
 
         # ── Issue Extract phase（非 local_json 時，轉換為標準格式）──
         issue_json = await self._run_issue_extract(issue_id, raw_issue)
