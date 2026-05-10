@@ -269,7 +269,7 @@ async def execute_agent_session(
                 tool_name = event.tool_name or "Unknown"
                 tool_usage_stats[tool_name] = tool_usage_stats.get(tool_name, 0) + 1
                 # 工具呼叫前後各空一行，與 AI 回應文字分開
-                print(f"\n\n  🔧 工具呼叫 #{tool_call_count}/{max_tool_calls}: {tool_name}\n")
+                print(f"\n  🔧 工具呼叫 #{tool_call_count}/{max_tool_calls}: {tool_name}")
                 after_tool_call = True
 
                 _handle_tool_limit_warning(
