@@ -45,7 +45,29 @@ argument-hint: <issue-description or issue-id>
 → 詳細程序：使用 **Read tool（非 Serena read_file）** 以絕對路徑載入 `browser-reproduction.md`
   路徑：見 Project Context → Available Skills Directories（找 `references/browser-reproduction.md`）
 
+**⚠️ REPRODUCE 強制退出條件（任一觸發即停止）**
+
+| 情況 | 動作 |
+|------|------|
+| 登入操作連續失敗 2 次 | 存 `reproduction-failed.png`，截圖說明記錄 `auth_failure`，立即停止 |
+| 同一操作步驟重試超過 3 次仍失敗 | 存 `reproduction-failed.png`，記錄卡住的步驟，立即停止 |
+| 完整執行 reproduction_steps 後仍看不到 actual 描述的現象 | 存 `reproduction-failed.png`，記錄「操作完畢後未觀察到錯誤」，立即停止 |
+
+> 停止 REPRODUCE ≠ 放棄整個分析。存好截圖後直接進入 Step 1 RCA，但必須遵守下方的「REPRODUCE 結果解釋義務」。
+
 <!-- GATE:RCA -->
+### REPRODUCE 結果解釋義務（進入 RCA 前必讀）
+
+進入 Step 1 前，先陳述 REPRODUCE 結果並決定 RCA 方向：
+
+| REPRODUCE 結果 | 截圖 | RCA 方向 |
+|----------------|------|---------|
+| 成功重現 `actual` 描述的錯誤 | `reproduction.png` | 正常進行 RCA，尋找根因 |
+| 失敗：操作完畢後未觀察到錯誤 | `reproduction-failed.png` | **傾向 `already_fixed`**。除非靜態分析發現明確 bug pattern，否則 Status 應為 `already_fixed` |
+| 失敗：auth / 頁面無法載入等環境問題 | `reproduction-failed.png` | 佐證缺失，繼續靜態 RCA，但 confidence 扣分（`靜態分析無法重現 -0.20`） |
+
+> **原則**：「我完整操作了卻沒看到錯誤」本身是 already_fixed 的強佐證，LLM 不得無視此事實而在 RCA 中強行尋找 bug。
+
 ### Step 1: 語義定位
 
 根據 Issue 報告的「模組/功能位置」，推斷可能的檔案位置：
@@ -62,6 +84,23 @@ argument-hint: <issue-description or issue-id>
 2. 搜尋 UI 文字（button label、page title）
 3. 搜尋元件名稱
 4. 如有必要，再搜尋功能關鍵字
+
+**⚠️ RCA 強制退出條件**
+
+| 情況 | 動作 |
+|------|------|
+| 執行 4 次以上 `search_files` 且全部無結果 | 立即停止搜尋，設 `Status: need_more_info` |
+| 讀完 3 個以上不同檔案仍找不到 bug pattern | 立即停止，設 `Status: need_more_info` |
+
+停止時報告格式：
+```
+Status: need_more_info
+Root Cause File: unknown
+Root Cause Description: 搜尋 [已嘗試的關鍵字列表] 均無結果，無法定位根因。
+  建議補充：issue 的模組名稱 / 觸發路徑 / 關鍵 UI 文字
+```
+
+> **不要再換關鍵字繼續搜尋。** 搜尋耗盡代表 issue 資訊不足以定位問題，而非關鍵字選錯。
 
 ### Step 2: 程式碼閱讀
 
