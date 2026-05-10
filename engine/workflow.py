@@ -22,14 +22,12 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from .config import ProjectConfig, load_config_from_env, ConfigurationError
-from .project_spec import ProjectSpec
 from .skill_loader import load_skill
 from .issue_source import create_adapter, IssueNotFoundError, IssueSourceError
 from .agent_runner import (
     create_session,
     run_in_session,
     setup_sdk_error_silencing,
-    init_agent_runner,
     ANALYZE_IMPLEMENT_TOOLS,
     TEST_TOOLS,
     INIT_TOOLS,
@@ -51,7 +49,7 @@ AGENT_ROOT = Path(__file__).parent.parent.resolve()
 # Workflow 初始化（延遲到執行時才載入 config）
 # ==========================================
 
-def init_workflow() -> tuple[ProjectConfig, ProjectSpec, Path]:
+def init_workflow() -> tuple[ProjectConfig, Path]:
     """
     初始化 workflow 所需元件，延遲到執行時才載入。
     不在 module 層級執行，避免 import 時觸發 sys.exit。
@@ -63,7 +61,6 @@ def init_workflow() -> tuple[ProjectConfig, ProjectSpec, Path]:
     print("=" * 60)
 
     config = load_config_from_env()
-    spec = ProjectSpec(config)
     project_root = config.get_project_root()
 
     print(f"  ✅ Project: {config.project_name}")
@@ -78,10 +75,9 @@ def init_workflow() -> tuple[ProjectConfig, ProjectSpec, Path]:
             print(f"     - {w}")
 
     init_tools(config)
-    init_agent_runner(config, spec)
     print("=" * 60 + "\n")
 
-    return config, spec, project_root
+    return config, project_root
 
 
 # ==========================================
@@ -391,7 +387,7 @@ async def run_batch_workflow(issue_ids: list[str]):
     任一 issue 失敗不中斷後續執行，最後彙總結果。
     """
     try:
-        config, spec, project_root = init_workflow()
+        config, project_root = init_workflow()
     except ConfigurationError as e:
         print(f"\n❌ Configuration Error: {e}\n")
         sys.exit(1)
@@ -556,7 +552,7 @@ async def run_workflow(issue_id: str):
     所有初始化延遲到此處，避免 import 時觸發 sys.exit。
     """
     try:
-        config, spec, project_root = init_workflow()
+        config, project_root = init_workflow()
     except ConfigurationError as e:
         print(f"\n❌ Configuration Error: {e}\n")
         print("Set PROJECT_CONFIG environment variable:")

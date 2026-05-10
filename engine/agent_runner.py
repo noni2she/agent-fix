@@ -8,7 +8,6 @@ Agent 執行器模組 v3.1 (SDK Adapter)
     export SDK_ADAPTER=claude
     export SDK_ADAPTER=openai
 
-init_agent_runner() 由 main.py 傳入 ProjectConfig + ProjectSpec，
 工具路徑、命令由 ProjectConfig 配置，無硬編碼。
 """
 import asyncio
@@ -16,24 +15,7 @@ import time
 from typing import List
 
 from .adapters import get_adapter, get_default_model, AdapterPool, AgentSession, AgentEvent
-from .project_spec import ProjectSpec
 from .config import ProjectConfig
-
-
-# ==========================================
-# 全域配置（由 init_agent_runner 設定）
-# ==========================================
-
-_project_config: ProjectConfig = None
-_project_spec: ProjectSpec = None
-
-
-def init_agent_runner(config: ProjectConfig, spec: ProjectSpec):
-    """初始化 Agent Runner（必須在執行前呼叫）"""
-    global _project_config, _project_spec
-    _project_config = config
-    _project_spec = spec
-    print(f"  🤖 Agent runner initialized for {config.project_name}")
 
 
 # ==========================================

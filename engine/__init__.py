@@ -5,7 +5,6 @@ __version__ = "3.1.0"
 
 # Config
 from .config import ProjectConfig, load_config_from_env, ConfigurationError, IssueSourceConfig
-from .project_spec import ProjectSpec
 
 # Issue Source
 from .issue_source import (
@@ -24,7 +23,6 @@ from .agent_runner import (
     create_session,
     create_copilot_session,   # 向後相容別名
     setup_sdk_error_silencing,
-    init_agent_runner,
     ANALYZE_IMPLEMENT_TOOLS,
     TEST_TOOLS,
 )
@@ -41,7 +39,6 @@ __all__ = [
     "IssueSourceConfig",
     "load_config_from_env",
     "ConfigurationError",
-    "ProjectSpec",
     # Issue Source
     "IssueSourceAdapter",
     "LocalJsonAdapter",
@@ -55,7 +52,6 @@ __all__ = [
     "create_session",
     "create_copilot_session",
     "setup_sdk_error_silencing",
-    "init_agent_runner",
     "ANALYZE_IMPLEMENT_TOOLS",
     "TEST_TOOLS",
     # Skill Loader
