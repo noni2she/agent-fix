@@ -184,14 +184,10 @@ class CopilotAdapter(AgentAdapter):
                             "output": output_tokens,
                         }))
 
-            elif event_type == SessionEventType.EXTERNAL_TOOL_REQUESTED:
-                # Custom/external tools registered via Tool()
-                tool_name = getattr(data, "tool_name", None) or "Unknown"
-                session.emit(AgentEvent(type="tool_start", tool_name=tool_name))
-
             elif event_type == SessionEventType.TOOL_EXECUTION_START:
-                # Built-in tools (read_file, bash, grep, search_files, etc.)
-                # These were previously invisible to our event handler.
+                # Fires for ALL tools: built-in, MCP, and custom registered tools.
+                # EXTERNAL_TOOL_REQUESTED also fires for MCP/external tools, so using
+                # only TOOL_EXECUTION_START avoids double-counting.
                 tool_name = getattr(data, "tool_name", None) or "Unknown"
                 session.emit(AgentEvent(type="tool_start", tool_name=tool_name))
 
