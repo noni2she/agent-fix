@@ -15,10 +15,52 @@ lifecycle：
         await manager.stop()
 """
 import asyncio
+import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .config import MCPServerConfig
+
+logger = logging.getLogger(__name__)
+
+
+class MCPErrlogFilter:
+    """
+    stdio_client 的 errlog 替代品：將 MCP server 的 stderr 輸出
+    過濾為只印 WARNING 以上層級，其餘靜默。
+
+    Python logging 格式的 WARNING/ERROR/CRITICAL 直接轉發；
+    非 logging 格式的原始行（如 Node.js stderr）視為 WARNING。
+    """
+
+    _LEVEL_MAP = {
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARNING": logging.WARNING,
+        "WARN": logging.WARNING,
+        "ERROR": logging.ERROR,
+        "CRITICAL": logging.CRITICAL,
+    }
+
+    def write(self, s: str) -> int:
+        for line in s.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # 嘗試解析 Python logging 格式：「LEVEL:logger:message」
+            level = logging.WARNING  # 預設：非 logging 格式視為 WARNING
+            parts = stripped.split(":", 2)
+            if len(parts) >= 2:
+                lvl = self._LEVEL_MAP.get(parts[0].upper())
+                if lvl is not None:
+                    level = lvl
+
+            if level >= logging.WARNING:
+                logger.log(level, "[mcp-stderr] %s", stripped)
+        return len(s)
+
+    def flush(self) -> None:
+        pass
 
 
 class MCPClientManager:
@@ -55,7 +97,7 @@ class MCPClientManager:
                     command=cfg.command,
                     args=cfg.args,
                 )
-                cm = stdio_client(server_params)
+                cm = stdio_client(server_params, errlog=MCPErrlogFilter())
                 read, write = await cm.__aenter__()
                 session_cm = ClientSession(read, write)
                 await session_cm.__aenter__()

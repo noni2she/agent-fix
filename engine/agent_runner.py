@@ -433,13 +433,17 @@ def _print_execution_stats(
             pct = count / tool_call_count * 100 if tool_call_count > 0 else 0
             print(f"        • {name}: {count} ({pct:.0f}%)")
 
-    usage_rate = tool_call_count / max_tool_calls * 100 if max_tool_calls > 0 else 0
-    status = (
-        "🔴 達上限" if tool_call_count >= max_tool_calls else
-        "🟡 接近上限" if usage_rate >= 80 else
-        "🟢 正常" if usage_rate >= 30 else
-        "⚪ 偏低"
-    )
+    if max_tool_calls == 0:
+        status = "⚪ 無限制"
+        usage_rate = 0.0
+    else:
+        usage_rate = tool_call_count / max_tool_calls * 100
+        status = (
+            "🔴 達上限" if tool_call_count >= max_tool_calls else
+            "🟡 接近上限" if usage_rate >= 80 else
+            "🟢 正常" if usage_rate >= 30 else
+            "⚪ 偏低"
+        )
     print(f"     📈 使用率: {usage_rate:.0f}% ({status})")
     if tool_call_count == 0:
         print(f"     ℹ️  Copilot SDK 內建工具不計入此統計，實際工具呼叫數可能 > 0")

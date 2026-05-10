@@ -32,7 +32,8 @@ argument-hint: <issue-description or issue-id>
 
 **⚠️ 工具使用效率原則：盡量用最少的步驟定位問題**
 
-> 瀏覽器工具效率規則：載入 `../references/browser-efficiency.md`
+> 瀏覽器工具效率規則：使用 **Read tool（非 Serena read_file）** 以絕對路徑載入 `browser-efficiency.md`
+> 路徑：見 Project Context → Available Skills Directories（找 `references/browser-efficiency.md`）
 
 <!-- GATE:REPRODUCE -->
 ### Step 0: 重現問題（瀏覽器優先）
@@ -41,7 +42,8 @@ argument-hint: <issue-description or issue-id>
 
 > ⚠️ 不要在 Step 0 做程式碼追蹤或根因推理——那是 Steps 1–4 的工作。Step 0 只觀察「現象」。
 
-→ 詳細程序：載入 `references/browser-reproduction.md`
+→ 詳細程序：使用 **Read tool（非 Serena read_file）** 以絕對路徑載入 `browser-reproduction.md`
+  路徑：見 Project Context → Available Skills Directories（找 `references/browser-reproduction.md`）
 
 <!-- GATE:RCA -->
 ### Step 1: 語義定位
@@ -71,7 +73,7 @@ argument-hint: <issue-description or issue-id>
 - **i18n 翻譯錯誤**
 - **共用元件的客製化機制**（className prop、style prop、render props 等）
 
-**若修復方向涉及外部 API 契約變更** → 載入 `references/external-contract.md`
+**若修復方向涉及外部 API 契約變更** → 使用 **Read tool** 以絕對路徑載入 `references/external-contract.md`（路徑見 Project Context → Available Skills Directories）
 
 ### Step 3: 影響範圍分析
 
@@ -110,7 +112,7 @@ argument-hint: <issue-description or issue-id>
 
 **不觸發**：純文字錯誤（i18n/文案）、純邏輯錯誤（條件反了/missing prop）、單一明確修復路徑
 
-→ 觸發時載入 `references/ux-evaluation.md`
+→ 觸發時使用 **Read tool** 以絕對路徑載入 `references/ux-evaluation.md`（路徑見 Project Context → Available Skills Directories）
 
 ## 輸出格式
 

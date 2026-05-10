@@ -454,8 +454,11 @@ class ProjectConfig(BaseModel):
         
         try:
             config = cls(**yaml_data)
-            # 注入 config 檔 stem 作為 project_key（如 morse-webapp.yaml → morse-webapp）
-            object.__setattr__(config, 'project_key', config_file.stem)
+            # 注入 project_key：
+            # - 若檔名為 config.yaml（新式目錄結構 projects/<slug>/config.yaml），取上層目錄名
+            # - 否則取檔名 stem（舊式 projects/<slug>.yaml）
+            key = config_file.parent.name if config_file.name == 'config.yaml' else config_file.stem
+            object.__setattr__(config, 'project_key', key)
             return config
         except Exception as e:
             raise ValueError(f"Configuration validation failed: {e}")

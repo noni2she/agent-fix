@@ -222,6 +222,17 @@ class JiraAdapter(IssueSourceAdapter):
             return [JiraAdapter._strip_fields(i) for i in obj if i is not None]
         return obj
 
+    @staticmethod
+    def _normalize_line_endings(obj):
+        """遞迴將字串中的 \\r\\n 或 \\r 統一為 \\n。"""
+        if isinstance(obj, dict):
+            return {k: JiraAdapter._normalize_line_endings(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [JiraAdapter._normalize_line_endings(i) for i in obj]
+        if isinstance(obj, str):
+            return obj.replace('\r\n', '\n').replace('\r', '\n')
+        return obj
+
     def _download_image(self, url: str) -> bytes | None:
         """使用 session cookie 下載附件，回傳原始 bytes；失敗回傳 None。"""
         request = Request(url, headers={
@@ -290,6 +301,8 @@ class JiraAdapter(IssueSourceAdapter):
             data = self._get(f"/rest/api/2/issue/{issue_id}")
             data = self._strip_fields(data)
             data["issue_id"] = issue_id
+            # 清理 Windows 換行符（\r\n → \n）
+            data = self._normalize_line_endings(data)
             # 下載圖片/影片附件 → 標準 _images 格式
             images = self._extract_images(data, max_video_frames=self.video_max_frames)
             if images:
