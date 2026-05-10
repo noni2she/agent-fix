@@ -302,6 +302,7 @@ class BugfixOrchestrator:
             self.agent_root / "projects"
             / self.config.get_project_key() / "screenshots" / issue_id
         )
+        screenshot_dir.mkdir(parents=True, exist_ok=True)
 
         # ── Gate REPRODUCE: Step 0 全部（能力前置 + 瀏覽器重現）──
         last_reproduce_judgment = ""

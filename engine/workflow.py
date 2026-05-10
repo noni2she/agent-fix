@@ -491,7 +491,7 @@ async def run_batch_workflow(issue_ids: list[str]):
     if skipped:
         print("\n  Skipped (already_fixed / need_more_info / spawn gate blocked):")
         for i in skipped:
-            report_dir = AGENT_ROOT / "issues" / "reports" / config.get_project_key()
+            report_dir = AGENT_ROOT / "projects" / config.get_project_key() / "reports"
             status = read_analyze_status(i, report_dir)
             print(f"    ⏸️  {i}  [{status}]  ({_fmt_duration(timings.get(i, 0))}){_tok_suffix(i)}")
     if errors:
