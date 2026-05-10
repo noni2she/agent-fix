@@ -16,6 +16,8 @@ lifecycle：
 """
 import asyncio
 import logging
+import os
+import threading
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -28,6 +30,9 @@ class MCPErrlogFilter:
     """
     stdio_client 的 errlog 替代品：將 MCP server 的 stderr 輸出
     過濾為只印 WARNING 以上層級，其餘靜默。
+
+    使用 OS pipe + background thread，讓 anyio.open_process 能拿到真正的
+    file descriptor（fileno()），同時保留 Python-side 過濾邏輯。
 
     Python logging 格式的 WARNING/ERROR/CRITICAL 直接轉發；
     非 logging 格式的原始行（如 Node.js stderr）視為 WARNING。
@@ -42,25 +47,46 @@ class MCPErrlogFilter:
         "CRITICAL": logging.CRITICAL,
     }
 
-    def write(self, s: str) -> int:
+    def __init__(self) -> None:
+        read_fd, write_fd = os.pipe()
+        self._write_file = os.fdopen(write_fd, "w", buffering=1)
+        thread = threading.Thread(
+            target=self._reader_loop, args=(read_fd,), daemon=True
+        )
+        thread.start()
+
+    def _reader_loop(self, read_fd: int) -> None:
+        with os.fdopen(read_fd, "r", buffering=1) as f:
+            for line in f:
+                self._dispatch(line)
+
+    def _dispatch(self, s: str) -> None:
         for line in s.splitlines():
             stripped = line.strip()
             if not stripped:
                 continue
-            # 嘗試解析 Python logging 格式：「LEVEL:logger:message」
-            level = logging.WARNING  # 預設：非 logging 格式視為 WARNING
+            level = logging.WARNING
             parts = stripped.split(":", 2)
             if len(parts) >= 2:
                 lvl = self._LEVEL_MAP.get(parts[0].upper())
                 if lvl is not None:
                     level = lvl
-
             if level >= logging.WARNING:
                 logger.log(level, "[mcp-stderr] %s", stripped)
-        return len(s)
+
+    # --- file-like interface expected by stdio_client / anyio ---
+
+    def fileno(self) -> int:
+        return self._write_file.fileno()
+
+    def write(self, s: str) -> int:
+        return self._write_file.write(s)
 
     def flush(self) -> None:
-        pass
+        self._write_file.flush()
+
+    def close(self) -> None:
+        self._write_file.close()
 
 
 class MCPClientManager:
