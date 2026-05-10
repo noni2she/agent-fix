@@ -127,7 +127,7 @@ def load_project_context(config: ProjectConfig, project_root: Path, agent_root: 
 {dirs_list}
 
 ⚠️ **重要**：Skills 與 references 目錄屬於 **agent root**（非目標專案），
-請使用 **`read_file` with absolute path**（如 `{skill_dirs[0]}/references/browser-efficiency.md`）
+請使用 **`read_file` with absolute path**（如 `{skill_dirs[0]}/bugfix-analyze/references/browser-efficiency.md`）
 或 Claude 內建 **`Read` tool** 讀取，不要用相對路徑（Serena 會以目標專案根目錄解析相對路徑）。
 """
 

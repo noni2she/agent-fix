@@ -32,8 +32,8 @@ argument-hint: <issue-description or issue-id>
 
 **⚠️ 工具使用效率原則：盡量用最少的步驟定位問題**
 
-> 瀏覽器工具效率規則：使用 **Read tool（非 Serena read_file）** 以絕對路徑載入 `browser-efficiency.md`
-> 路徑：見 Project Context → Available Skills Directories（找 `references/browser-efficiency.md`）
+> 瀏覽器工具效率規則：使用 **Read tool（非 Serena read_file）** 讀取效率規則
+> 路徑：`{Available Skills Directories 第一條}/bugfix-analyze/references/browser-efficiency.md`
 
 <!-- GATE:REPRODUCE -->
 ### Step 0: 重現問題（瀏覽器優先）
