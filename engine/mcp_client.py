@@ -65,12 +65,14 @@ class MCPErrlogFilter:
             stripped = line.strip()
             if not stripped:
                 continue
-            level = logging.WARNING
-            parts = stripped.split(":", 2)
-            if len(parts) >= 2:
-                lvl = self._LEVEL_MAP.get(parts[0].upper())
-                if lvl is not None:
-                    level = lvl
+            # 支援兩種格式：
+            #   Serena/其他:    "INFO  2026-05-10 15:21:51,..."  → 空白分隔
+            #   Python logging: "WARNING:logger:msg"             → 冒號分隔
+            first_word = stripped.split()[0].rstrip(":")
+            level = self._LEVEL_MAP.get(first_word.upper()) \
+                or self._LEVEL_MAP.get(stripped.split(":")[0].strip().upper())
+            if level is None:
+                continue  # 無法辨識格式 → 靜默
             if level >= logging.WARNING:
                 logger.log(level, "[mcp-stderr] %s", stripped)
 
