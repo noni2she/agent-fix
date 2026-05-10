@@ -15,80 +15,15 @@ lifecycle：
         await manager.stop()
 """
 import asyncio
-import logging
-import os
-import threading
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .config import MCPServerConfig
 
-logger = logging.getLogger(__name__)
 
-
-class MCPErrlogFilter:
-    """
-    stdio_client 的 errlog 替代品：將 MCP server 的 stderr 輸出
-    過濾為只印 WARNING 以上層級，其餘靜默。
-
-    使用 OS pipe + background thread，讓 anyio.open_process 能拿到真正的
-    file descriptor（fileno()），同時保留 Python-side 過濾邏輯。
-
-    Python logging 格式的 WARNING/ERROR/CRITICAL 直接轉發；
-    非 logging 格式的原始行（如 Node.js stderr）視為 WARNING。
-    """
-
-    _LEVEL_MAP = {
-        "DEBUG": logging.DEBUG,
-        "INFO": logging.INFO,
-        "WARNING": logging.WARNING,
-        "WARN": logging.WARNING,
-        "ERROR": logging.ERROR,
-        "CRITICAL": logging.CRITICAL,
-    }
-
-    def __init__(self) -> None:
-        read_fd, write_fd = os.pipe()
-        self._write_file = os.fdopen(write_fd, "w", buffering=1)
-        thread = threading.Thread(
-            target=self._reader_loop, args=(read_fd,), daemon=True
-        )
-        thread.start()
-
-    def _reader_loop(self, read_fd: int) -> None:
-        with os.fdopen(read_fd, "r", buffering=1) as f:
-            for line in f:
-                self._dispatch(line)
-
-    def _dispatch(self, s: str) -> None:
-        for line in s.splitlines():
-            stripped = line.strip()
-            if not stripped:
-                continue
-            # 支援兩種格式：
-            #   Serena/其他:    "INFO  2026-05-10 15:21:51,..."  → 空白分隔
-            #   Python logging: "WARNING:logger:msg"             → 冒號分隔
-            first_word = stripped.split()[0].rstrip(":")
-            level = self._LEVEL_MAP.get(first_word.upper()) \
-                or self._LEVEL_MAP.get(stripped.split(":")[0].strip().upper())
-            if level is None:
-                continue  # 無法辨識格式 → 靜默
-            if level >= logging.WARNING:
-                logger.log(level, "[mcp-stderr] %s", stripped)
-
-    # --- file-like interface expected by stdio_client / anyio ---
-
-    def fileno(self) -> int:
-        return self._write_file.fileno()
-
-    def write(self, s: str) -> int:
-        return self._write_file.write(s)
-
-    def flush(self) -> None:
-        self._write_file.flush()
-
-    def close(self) -> None:
-        self._write_file.close()
+def _open_devnull():
+    """MCP server stderr → /dev/null（連線失敗由 except 捕捉，不需要 stderr 輸出）。"""
+    return open("/dev/null", "w")
 
 
 class MCPClientManager:
@@ -125,7 +60,7 @@ class MCPClientManager:
                     command=cfg.command,
                     args=cfg.args,
                 )
-                cm = stdio_client(server_params, errlog=MCPErrlogFilter())
+                cm = stdio_client(server_params, errlog=_open_devnull())
                 read, write = await cm.__aenter__()
                 session_cm = ClientSession(read, write)
                 await session_cm.__aenter__()
