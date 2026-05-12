@@ -1,6 +1,6 @@
 # Agent Fix — 發展路線
 
-> 最後更新：2026-04-17
+> 最後更新：2026-05-11
 
 ## 專案定位
 
@@ -354,6 +354,30 @@ webhook 觸發（人類新增 comment）
 
 ---
 
+## 階段 5.x：Init 整合 Context7 — 專案級 Anti-Pattern 記憶（規劃中）
+
+> **背景**：negation check 需要 framework-specific 紅旗 pattern，但不應將所有技術層 pattern 寫死在 SKILL.md（導致肥大且難維護）。
+> 改由 init 階段呼叫 Context7 動態拉取對應 tech stack 的 anti-pattern 文件，存入 Serena memory，
+> 後續所有 issue 的 negation check 直接讀 memory，不需重複呼叫 Context7。
+
+### 設計
+
+- init 偵測 `config.yaml` 是否存在：不存在 → 執行完整 init；存在 → 跳過
+- init 流程在識別 tech stack 後，對每個框架呼叫 `context7:resolve-library-id` + `context7:get-library-docs`（topic: anti-patterns, performance, common-bugs）
+- 結果寫入 `.serena/memories/anti-patterns-{framework}.md`（例：`anti-patterns-react.md`、`anti-patterns-nodejs.md`）
+- negation check 讀 Serena memory，不消耗 negation 的 3-search tool call budget
+
+### 需要做的事
+
+- [ ] `cli.py` 新增 `agent-fix init` 指令（或確認現有 init 流程的進入點）
+- [ ] init 流程加入 Context7 fetch 步驟：識別 tech stack → 依框架逐一拉取 anti-pattern 文件
+- [ ] 結果以 `serena:write_memory` 存入 `.serena/memories/anti-patterns-{framework}.md`
+- [ ] `config.yaml` 新增 `docs_fetched_at` timestamp，供 refresh 判斷使用
+- [ ] 支援 `agent-fix init --refresh`：強制重跑 Context7 fetch（用於 tech stack 版本升級後）
+- [ ] SKILL.md negation check 段落：說明優先讀取 anti-pattern memory，memory 不存在時 fallback 到 SKILL.md 通用層（G1–G3）
+
+---
+
 ## 階段 6：Mock Reproduction — 備用重現手法（規劃中）
 
 > **背景**：瀏覽器重現依賴真實環境（登入、session、dev server），在 AI 操作場景下
@@ -438,6 +462,17 @@ reproduce step
 - [ ] 新增 CLI 指令 `agent-fix retro <issue-id>`
 - [ ] 跨 issue 分析 `agent-fix retro --cross --since <date>`
 - [ ] 新增 `docs/retro-log.md` 作為 retro 索引
+
+### AI 經驗學習機制（待設計）
+
+> **目標**：不是單純累積修復案例，而是能真正解讀每次修復的完整過程（REPRODUCE → RCA → implement → test），
+> 將跨 issue 的經驗統整成可查詢的知識文件，讓 agent 在遇到新 issue 卡住時能主動參考，而非每次從零開始。
+
+- [ ] 設計 synthesis agent：讀取完整修復流程（非單一 phase 報告），萃取「bug 特徵 → 搜尋策略 → 紅旗判斷 → 修復路徑」的結構化 pattern
+- [ ] 設計知識文件格式：每個 pattern 可被語義查詢（不是流水帳，是提煉後的經驗條目）
+- [ ] 設計查詢介面：agent 卡住時主動搜尋「同類 bug / 同技術棧 / 同症狀」的歷史 pattern
+- [ ] 決定查詢方式：關鍵字搜尋 vs 語義相似度 vs 結構化查詢（三種複雜度，從簡單開始）
+- [ ] 決定知識文件的存放位置與更新策略（retro 後自動觸發 synthesis，還是手動觸發）
 
 ### 改善落地流程
 

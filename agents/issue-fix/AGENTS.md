@@ -48,6 +48,19 @@ Always use `read_artifact` to read the relevant report before issuing a verdict.
 
 ---
 
+## Already Fixed Handling
+
+**When you read `analyze.md` and `Status = already_fixed`**, do not proceed to implement. Instead, apply the following action based on Confidence Score:
+
+| Status | Confidence Score | Action |
+|--------|-----------------|--------|
+| already_fixed | ≥ 0.70 | 建議關票。在 checkpoint 訊息中附上 analyze.md 的 Root Cause Description 作為說明。 |
+| already_fixed | < 0.70 | 建議關票，但標注「建議 QA 人工複核」。Confidence 偏低可能源於重現環境差異，issue 有可能仍存在。 |
+
+Always use `checkpoint` to surface the already_fixed result to the human — do not silently skip.
+
+---
+
 ## Gate 2 — ANALYZE QUALITY
 
 **When you are asked:** after the Analyzer writes `analyze.md`.

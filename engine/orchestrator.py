@@ -62,6 +62,7 @@ class BugfixOrchestrator:
 
         self._gates = self._parse_gates(skills["analyze"])
         self._tokens: dict = {"input": 0, "output": 0}
+        self._last_analyze_confidence: float = 0.0
         self.issue_source_type = config.issue_source.type
 
         # Per-subagent SDK / model 設定
@@ -124,7 +125,11 @@ class BugfixOrchestrator:
         analyze_status = await self._run_analyze(issue_id, issue_json, images, orch_session)
 
         if analyze_status == "already_fixed":
-            print("\n  ✅ Already fixed — no further action.")
+            confidence = getattr(self, "_last_analyze_confidence", 0.0)
+            if confidence >= 0.70:
+                print(f"\n  ✅ Already fixed (confidence: {confidence:.2f}) — suggesting ticket closure.")
+            else:
+                print(f"\n  ⚠️  Already fixed (confidence: {confidence:.2f}) — low confidence, recommend QA review.")
             self._accumulate(orch_session)
             return {**self._tokens, "outcome": "skipped"}
 
@@ -416,8 +421,9 @@ class BugfixOrchestrator:
             )
 
         self._accumulate(session)
-        status = self._read_analyze_status(issue_id)
-        print(f"\n  📊 Analyze status: {status}")
+        status, confidence = self._read_analyze_result(issue_id)
+        print(f"\n  📊 Analyze status: {status} (confidence: {confidence:.2f})")
+        self._last_analyze_confidence = confidence
         return status
 
     # ──────────────────────────────────────────
@@ -601,16 +607,34 @@ class BugfixOrchestrator:
     # Report readers (structured Python checks)
     # ──────────────────────────────────────────
 
-    def _read_analyze_status(self, issue_id: str) -> str:
+    def _read_analyze_result(self, issue_id: str) -> tuple[str, float]:
+        """Read status and confidence from analyze.md. Returns (status, confidence)."""
         report = self.report_dir / issue_id / "analyze.md"
         if not report.exists():
-            return "missing"
+            return "missing", 0.0
         text = report.read_text(encoding="utf-8")
+
         if re.search(r'\*\*Status\*\*[:\s]+already_fixed', text, re.IGNORECASE):
-            return "already_fixed"
-        if re.search(r'\*\*Status\*\*[:\s]+confirmed', text, re.IGNORECASE):
-            return "confirmed"
-        return "need_more_info"
+            status = "already_fixed"
+        elif re.search(r'\*\*Status\*\*[:\s]+confirmed', text, re.IGNORECASE):
+            status = "confirmed"
+        else:
+            status = "need_more_info"
+
+        confidence = 0.0
+        m = re.search(r'\*\*Confidence Score\*\*[:\s]+([\d.]+)', text, re.IGNORECASE)
+        if m:
+            try:
+                confidence = float(m.group(1))
+            except ValueError:
+                confidence = 0.0
+
+        return status, confidence
+
+    def _read_analyze_status(self, issue_id: str) -> str:
+        """Backward-compatible wrapper. Use _read_analyze_result for new code."""
+        status, _ = self._read_analyze_result(issue_id)
+        return status
 
     def _read_test_verdict(self, issue_id: str, retry: int = 0) -> str:
         filename = "test.md" if retry == 0 else f"test-retry-{retry}.md"
