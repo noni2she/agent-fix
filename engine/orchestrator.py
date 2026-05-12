@@ -377,14 +377,22 @@ class BugfixOrchestrator:
         report_path = self.report_dir / issue_id / "analyze.md"
         report_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Fresh session for RCA — avoids carrying REPRODUCE screenshot history
+        # (REPRODUCE with 60 tool calls can accumulate 4M+ tokens via base64 images)
+        _, rca_session = await create_session(
+            ANALYZE_IMPLEMENT_TOOLS,
+            sdk=sdk, model=model,
+            adapter_pool=self._adapter_pool,
+        )
+
         rca_response = ""
         for attempt in range(2):
-            rca_prompt = self._build_rca_prompt(issue_id, report_path)
+            rca_prompt = self._build_rca_prompt(issue_id, report_path, reproduce_response=response)
             rca_response = await run_in_session(
-                session, "analyze-rca", rca_prompt, max_tool_calls=60,
+                rca_session, "analyze-rca", rca_prompt, max_tool_calls=60,
                 prompt_sources=[
                     "skills/bugfix-analyze/SKILL.md [GATE: RCA]",
-                    f"Issue: {issue_id} (REPRODUCE context carried from same session)",
+                    f"Issue: {issue_id} (Evidence Package from REPRODUCE)",
                     f"→ analyze.md: {report_path}",
                 ],
             )
@@ -394,7 +402,7 @@ class BugfixOrchestrator:
                 print("\n  ⚠️  analyze.md not written — retrying RCA gate...")
 
         # Orchestrator judges RCA grounding (replaces Python 0-tool-call heuristic)
-        last_tool_calls = getattr(session, "last_turn_tool_calls", -1)
+        last_tool_calls = getattr(rca_session, "last_turn_tool_calls", -1)
         grounding_judgment = await self._judge(
             orch_session, "rca-grounding",
             f"## RCA Grounding Check\n\n"
@@ -416,11 +424,12 @@ class BugfixOrchestrator:
                 f"Issue ID: {issue_id}\n"
             )
             await run_in_session(
-                session, "analyze-rca-grounded", grounded_prompt, max_tool_calls=40,
+                rca_session, "analyze-rca-grounded", grounded_prompt, max_tool_calls=40,
                 prompt_sources=["Orchestrator grounding feedback (re-run with explicit tool instruction)"],
             )
 
         self._accumulate(session)
+        self._accumulate(rca_session)
         status, confidence = self._read_analyze_result(issue_id)
         print(f"\n  📊 Analyze status: {status} (confidence: {confidence:.2f})")
         self._last_analyze_confidence = confidence
@@ -541,12 +550,20 @@ class BugfixOrchestrator:
             f"Issue ID: {issue_id}\n"
         )
 
-    def _build_rca_prompt(self, issue_id: str, report_path: Path) -> str:
+    def _build_rca_prompt(
+        self, issue_id: str, report_path: Path, reproduce_response: str = ""
+    ) -> str:
         rca = self._gates["RCA"]
+        reproduce_section = (
+            f"## Step 0 重現結果（Evidence Package）\n\n"
+            f"{reproduce_response}\n\n---\n\n"
+            if reproduce_response
+            else "Step 0 重現已完成。"
+        )
         return (
             f"## 任務：Steps 1–5 — RCA 分析並寫入報告\n\n"
-            f"Step 0 重現已完成（見上方對話中的觀察記錄）。"
-            f"以這些觀察為基礎，執行完整根源分析並寫入報告。\n\n"
+            f"{reproduce_section}"
+            f"以上述觀察為基礎，執行完整根源分析並寫入報告。\n\n"
             f"**重要：在撰寫任何分析結論前，必須先使用 search_files 或 read_file 工具實際讀取相關程式碼。**\n\n"
             f"{rca}"
             f"\n\n---\n\n"

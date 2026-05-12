@@ -19,7 +19,7 @@
    - 看到使用者選單 / 頭像 / 個人資訊 → **已登入**，跳到 Step 0.2
    - 看到登入入口（登入按鈕、表單、或被導向登入頁）→ **未登入**，執行下一步
 4. 若未登入：
-   - 載入 `references/auth-flow.md`（位於 Skills Directories 下）
+   - 載入 `{Available Skills Directories 第一條}/references/auth-flow.md`
    - 參考 auth-flow skill 的 **Step 1: Email / Phone + Password Login**
    - 登入流程（直接跳轉 URL、modal、multi-step）需自行讀目標專案判斷，不要假設固定路由
    - 使用 Project Context 中 `Auth Config` 的 Username / Password 填寫登入表單
@@ -44,24 +44,36 @@
 
 使用 chrome-devtools MCP 工具，依照 `reproduction_steps` 逐步操作：
 
+> ⚠️ **Token 效率原則**：確認頁面狀態時用 `take_snapshot`（accessibility tree，純文字）。`take_screenshot` + `view` 的 base64 截圖 token 消耗極高，**全程只允許呼叫一次 `view`**（步驟 6 的最終截圖）。
+
 1. 確認 dev server 運行中：`curl -s http://localhost:<port> > /dev/null || echo "Dev server not running"`
 2. `list_pages` → 查看目前開啟的 tab；`select_page` → 選擇現有 tab（**不要呼叫 `new_page`，全程使用同一個 tab**）
 3. `navigate_page` 先導回 **專案首頁**（`http://localhost:<port>/`），確保每個 issue 從同一個乾淨狀態開始（**若 Step 0.1 已登入，此步導航後確認仍保持登入狀態**）
 3. 依照 issue 的進入點，`navigate_page` 打開問題頁面
 4. 依照 `reproduction_steps` 逐步操作（`click` / `fill` / `press_key` / `navigate_page`）
 5. **確認 `actual` 描述的錯誤行為真的出現** → 這是此步驟的核心目標
-6. `take_screenshot` 截圖記錄失敗狀態，存入 task prompt 指定的截圖目錄下 `reproduction.png`（**只截這一張，不要在其他步驟截圖**）
+6. `take_screenshot` 截圖存入截圖目錄下 `reproduction.png`，立即呼叫 `view` 確認截圖內容（**這是全程唯一一次 `view` 呼叫**）
 7. `list_console_messages` 找 type=error 的 runtime exception
 8. `list_network_requests` 找失敗的 API（4xx / 5xx）
 9. 若有必要，`evaluate_script` 驗證 DOM 狀態或 store 值
 
+> ⚠️ **Click 失敗處理**：若同一個 click 連續 2 次未觸發預期結果（dialog 未出現、元素未變更）— 立即停止點擊，用 `evaluate_script` 查明正確觸發方式（hidden input、JS handler），再繼續操作。**不得第 3 次執行相同 click。**
+
 **重現成功的標準**：操作完 `reproduction_steps` 後，觀察到的行為與 `actual` 描述一致（樣式類則為視覺呈現與 `actual` 一致）。
 
-#### 0.3a 重現需要上傳外部檔案
+#### 0.3a 重現步驟含媒體播放
+
+當 `reproduction_steps` 包含「播放 / 播放視頻 / play」等操作時：
+
+- **不要嘗試 click 播放按鈕** — 播放器按鈕的 accessible label 不可靠，易誤觸相鄰的返回 / 關閉按鈕
+- 改用 `evaluate_script` 直接播放：`document.querySelector('video').play()`
+- 確認播放中後再繼續下一個步驟
+
+#### 0.3b 重現需要上傳外部檔案
 
 當 `reproduction_steps` 中包含「上傳影片 / 圖片 / 文件」等操作，且需要實際檔案才能繼續時：
 
-- 載入 `references/upload-flow.md`（位於 Skills Directories 下）
+- 載入 `{Available Skills Directories 第一條}/references/upload-flow.md`
 - 依 upload-flow skill 的 **Step 0** 判斷所需檔案類型（圖片 / 影片 / 文件）
 - 依對應步驟執行上傳並觸發 React synthetic event
 - **【嚴格禁止】點擊上傳按鈕後等待 OS 系統檔案對話框** — 系統對話框無法在自動化環境中操作

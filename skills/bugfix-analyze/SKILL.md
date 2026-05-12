@@ -41,6 +41,8 @@ argument-hint: <issue-description or issue-id>
 **Step 0 的職責是「重現」，不是「分析」。** 透過瀏覽器親自操作出 `actual` 描述的錯誤現象，才算重現成功。重現成功後才進入 Step 1 RCA。
 
 > ⛔ **絕對禁止**在 Step 0 讀取任何原始碼、追蹤程式邏輯或推測根因。Step 0 唯一允許的工具是瀏覽器操作工具（導航、截圖、點擊、輸入）。讀程式碼是 Steps 1–4 的工作，不得提前。
+>
+> ⛔ **絕對禁止**自行變更 viewport 尺寸或模擬裝置環境（`emulate`、`resize`）。操作環境必須與人類的測試條件一致，擅自切換 viewport 會引入額外變數，導致重現結果無法對照 issue 報告。如果 reproduction_steps 沒有明確要求特定裝置環境，一律在預設桌面瀏覽器狀態下執行。
 
 → 詳細程序：使用 **Read tool（非 Serena read_file）** 讀取此 skill 的重現指引
   路徑：`{Available Skills Directories 第一條}/bugfix-analyze/references/browser-reproduction.md`
