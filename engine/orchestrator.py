@@ -297,10 +297,15 @@ class BugfixOrchestrator:
         print(f"{'─'*60}")
 
         sdk, model = self._resolve_phase("analyze")
+        # REPRODUCE: browser tools only (reduces schema token load; Serena not needed here)
+        reproduce_mcp = (
+            self.mcp_manager.get_filtered_view(["chrome-devtools"])
+            if self.mcp_manager else None
+        )
         _, session = await create_session(
             ANALYZE_IMPLEMENT_TOOLS,
             sdk=sdk, model=model,
-            mcp_manager=self.mcp_manager,
+            mcp_manager=reproduce_mcp,
             adapter_pool=self._adapter_pool,
         )
         screenshot_dir = (
@@ -379,9 +384,15 @@ class BugfixOrchestrator:
 
         # Fresh session for RCA — avoids carrying REPRODUCE screenshot history
         # (REPRODUCE with 60 tool calls can accumulate 4M+ tokens via base64 images)
+        # RCA: Serena tools only (code analysis; no browser tools needed)
+        rca_mcp = (
+            self.mcp_manager.get_filtered_view(["serena"])
+            if self.mcp_manager else None
+        )
         _, rca_session = await create_session(
             ANALYZE_IMPLEMENT_TOOLS,
             sdk=sdk, model=model,
+            mcp_manager=rca_mcp,
             adapter_pool=self._adapter_pool,
         )
 

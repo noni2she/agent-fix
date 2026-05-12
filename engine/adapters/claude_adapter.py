@@ -165,7 +165,7 @@ class ClaudeAdapter(AgentAdapter):
                 for block in response.content:
                     if block.type == "tool_use":
                         session.emit(AgentEvent(type="tool_start", tool_name=block.name))
-                        result = self._execute_tool(block.name, dict(block.input), native)
+                        result = self._execute_tool(block.name, dict(block.input), native, session)
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": block.id,
@@ -175,9 +175,16 @@ class ClaudeAdapter(AgentAdapter):
 
         session.emit(AgentEvent(type="idle"))
 
-    def _execute_tool(self, tool_name: str, args: dict, native: ClaudeNativeSession = None) -> str:
+    def _execute_tool(self, tool_name: str, args: dict, native: ClaudeNativeSession = None, session=None) -> str:
+        from .harness import check_tool_blocked, apply_tool_result_limits
+
+        blocked = check_tool_blocked(tool_name, session)
+        if blocked:
+            return blocked
+
         if native and native.mcp_manager and native.mcp_manager.is_mcp_tool(tool_name):
-            return native.mcp_manager.call_tool_sync(tool_name, args)
+            result = native.mcp_manager.call_tool_sync(tool_name, args)
+            return apply_tool_result_limits(tool_name, result, session)
         if tool_name not in TOOL_MAP:
             return f"❌ Unknown tool: {tool_name}"
         try:

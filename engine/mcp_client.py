@@ -72,6 +72,7 @@ class MCPClientManager:
                         "description": tool.description or tool.name,
                         "schema": tool.inputSchema if hasattr(tool, "inputSchema") else {},
                         "session": session_cm,
+                        "server": name,  # MCP server name from config (e.g. "chrome-devtools", "serena")
                     }
                 self._exit_stacks.append((session_cm, cm))
                 print(f"  🔌 MCP server '{name}': {len(tools_result.tools)} tools connected")
@@ -167,3 +168,55 @@ class MCPClientManager:
             return f"❌ MCP tool timeout ({tool_name})"
         except Exception as e:
             return f"❌ MCP tool error ({tool_name}): {e}"
+
+    def get_filtered_view(self, allowed_servers: List[str]) -> "_FilteredMCPView":
+        """Return a view exposing only tools from the specified MCP server names."""
+        return _FilteredMCPView(self, allowed_servers)
+
+
+class _FilteredMCPView:
+    """
+    Wraps MCPClientManager exposing only tools from allowed_servers.
+    Shares the underlying connections — does not reconnect or own lifecycle.
+    Used to give each agent phase only the tools it needs, reducing context token usage.
+    """
+
+    def __init__(self, manager: MCPClientManager, allowed_servers: List[str]):
+        self._manager = manager
+        self._allowed_servers = set(allowed_servers)
+        self._main_loop = manager._main_loop
+
+    def _allowed(self, tool_name: str) -> bool:
+        info = self._manager._tool_info.get(tool_name)
+        return info is not None and info.get("server") in self._allowed_servers
+
+    def is_mcp_tool(self, tool_name: str) -> bool:
+        return self._manager.is_mcp_tool(tool_name) and self._allowed(tool_name)
+
+    def get_tool_names(self) -> List[str]:
+        return [n for n in self._manager.get_tool_names() if self._allowed(n)]
+
+    def get_tool_schema_for_claude(self, tool_name: str) -> Optional[dict]:
+        return self._manager.get_tool_schema_for_claude(tool_name) if self._allowed(tool_name) else None
+
+    def get_tool_schema_for_openai(self, tool_name: str) -> Optional[dict]:
+        return self._manager.get_tool_schema_for_openai(tool_name) if self._allowed(tool_name) else None
+
+    def get_tool_description(self, tool_name: str) -> str:
+        return self._manager.get_tool_description(tool_name)
+
+    def get_tool_input_schema(self, tool_name: str) -> dict:
+        return self._manager.get_tool_input_schema(tool_name)
+
+    def call_tool_sync(self, tool_name: str, args: dict, timeout: int = 30) -> str:
+        if not self._allowed(tool_name):
+            return f"❌ Tool '{tool_name}' not available in this phase"
+        return self._manager.call_tool_sync(tool_name, args, timeout)
+
+    async def call_tool(self, tool_name: str, args: dict) -> str:
+        if not self._allowed(tool_name):
+            return f"❌ Tool '{tool_name}' not available in this phase"
+        return await self._manager.call_tool(tool_name, args)
+
+    async def stop(self) -> None:
+        pass  # lifecycle owned by the real MCPClientManager

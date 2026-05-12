@@ -43,8 +43,9 @@ class CopilotAdapter(AgentAdapter):
             await self.start()
 
         copilot_tools = self._build_copilot_tools(tool_names)
+        session_ref: list = []  # late-binding container: populated after AgentSession is created
         if mcp_manager:
-            copilot_tools.extend(self._build_copilot_mcp_tools(mcp_manager))
+            copilot_tools.extend(self._build_copilot_mcp_tools(mcp_manager, session_ref))
 
         native = await self._client.create_session(
             on_permission_request=PermissionHandler.approve_all,
@@ -52,6 +53,7 @@ class CopilotAdapter(AgentAdapter):
             tools=copilot_tools if copilot_tools else None,
         )
         session = AgentSession(adapter=self, native=native)
+        session_ref.append(session)  # now closures can resolve the session
 
         # 訂閱 Copilot 原始事件，轉換為標準化 AgentEvent
         native.on(lambda event: self._normalize_event(event, session))
@@ -88,7 +90,7 @@ class CopilotAdapter(AgentAdapter):
     # 工具建立
     # ==========================================
 
-    def _build_copilot_mcp_tools(self, mcp_manager: Any) -> list:
+    def _build_copilot_mcp_tools(self, mcp_manager: Any, session_ref: list) -> list:
         from copilot.tools import Tool, ToolResult
 
         tools = []
@@ -96,17 +98,23 @@ class CopilotAdapter(AgentAdapter):
             tools.append(Tool(
                 name=name,
                 description=mcp_manager.get_tool_description(name),
-                handler=self._make_mcp_handler(name, mcp_manager),
+                handler=self._make_mcp_handler(name, mcp_manager, session_ref),
                 parameters=mcp_manager.get_tool_input_schema(name),
             ))
         return tools
 
-    def _make_mcp_handler(self, tool_name: str, mcp_manager: Any):
+    def _make_mcp_handler(self, tool_name: str, mcp_manager: Any, session_ref: list):
         from copilot.tools import ToolResult
 
         async def handler(invocation):
+            from .harness import check_tool_blocked, apply_tool_result_limits
             args = invocation.arguments or {} if hasattr(invocation, "arguments") else {}
+            session = session_ref[0] if session_ref else None
+            blocked = check_tool_blocked(tool_name, session)
+            if blocked:
+                return ToolResult(text_result_for_llm=blocked, result_type="error")
             result = await mcp_manager.call_tool(tool_name, args)
+            result = apply_tool_result_limits(tool_name, result, session)
             return ToolResult(text_result_for_llm=str(result), result_type="success")
         return handler
 

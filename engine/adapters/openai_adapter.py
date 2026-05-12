@@ -63,8 +63,9 @@ class OpenAIAdapter(AgentAdapter):
         from agents import Agent
 
         openai_tools = self._build_openai_tools(tool_names)
+        session_ref: list = []  # late-binding container: populated after AgentSession is created
         if mcp_manager:
-            openai_tools.extend(self._build_openai_mcp_tools(mcp_manager))
+            openai_tools.extend(self._build_openai_mcp_tools(mcp_manager, session_ref))
 
         agent = Agent(
             name="bugfix-agent",
@@ -77,7 +78,9 @@ class OpenAIAdapter(AgentAdapter):
         )
 
         native = OpenAINativeSession(agent=agent)
-        return AgentSession(adapter=self, native=native)
+        agent_session = AgentSession(adapter=self, native=native)
+        session_ref.append(agent_session)  # now closures can resolve the session
+        return agent_session
 
     async def send(
         self,
@@ -187,7 +190,7 @@ class OpenAIAdapter(AgentAdapter):
             ))
         return tools
 
-    def _build_openai_mcp_tools(self, mcp_manager: Any) -> list:
+    def _build_openai_mcp_tools(self, mcp_manager: Any, session_ref: list) -> list:
         from agents import FunctionTool
 
         tools = []
@@ -197,15 +200,21 @@ class OpenAIAdapter(AgentAdapter):
                 name=name,
                 description=mcp_manager.get_tool_description(name),
                 params_json_schema=schema or {"type": "object", "properties": {}},
-                on_invoke_tool=self._make_mcp_invoke_handler(name, mcp_manager),
+                on_invoke_tool=self._make_mcp_invoke_handler(name, mcp_manager, session_ref),
             ))
         return tools
 
-    def _make_mcp_invoke_handler(self, tool_name: str, mcp_manager: Any):
+    def _make_mcp_invoke_handler(self, tool_name: str, mcp_manager: Any, session_ref: list):
         async def invoke(ctx, input_json: str) -> str:
+            from .harness import check_tool_blocked, apply_tool_result_limits
             import json
             args = json.loads(input_json) if isinstance(input_json, str) else input_json
-            return await mcp_manager.call_tool(tool_name, args)
+            session = session_ref[0] if session_ref else None
+            blocked = check_tool_blocked(tool_name, session)
+            if blocked:
+                return blocked
+            result = await mcp_manager.call_tool(tool_name, args)
+            return apply_tool_result_limits(tool_name, result, session)
         return invoke
 
     def _make_invoke_handler(self, tool_name: str):

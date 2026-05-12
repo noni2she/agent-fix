@@ -47,6 +47,20 @@ INIT_TOOLS = [
     "write_file",
 ]
 
+# ==========================================
+# Harness: per-tool limits
+# ==========================================
+
+_EVALUATE_SCRIPT_TOOL = "evaluate_script"
+_EVALUATE_SCRIPT_LIMIT = 5
+_EVALUATE_SCRIPT_PPI = (
+    "🚨 evaluate_script 已達 5 次上限。立即停止所有工具呼叫，輸出 Evidence Package：\n"
+    "observed: <觀察到的實際行為>\n"
+    "objective_signals: <console 錯誤 / network 4xx-5xx 等客觀訊號>\n"
+    "instability_flags: <若有不穩定跡象列出，否則填 none>\n"
+    "reproduce_confidence: <0.0–1.0>"
+)
+
 
 # ==========================================
 # SDK 錯誤靜默（Copilot SDK 特有，其他 SDK 無影響）
@@ -218,6 +232,7 @@ async def execute_agent_session(
     last_activity = time.time()
 
     warning_points = get_warning_points(agent_name)
+    session.harness_phase = agent_name  # used by adapter harness for phase-aware enforcement
 
     def on_event(event: AgentEvent):
         nonlocal tool_call_count, force_output_requested, in_message_stream, after_tool_call, last_activity
@@ -280,6 +295,16 @@ async def execute_agent_session(
                     session=session,
                     phase_name=agent_name,
                 )
+
+                # Harness: evaluate_script capped at 5; inject PPI and force output
+                if (
+                    tool_name == _EVALUATE_SCRIPT_TOOL
+                    and tool_usage_stats.get(tool_name, 0) >= _EVALUATE_SCRIPT_LIMIT
+                    and not force_output_requested
+                ):
+                    print(f"  🚨 evaluate_script 達到 {_EVALUATE_SCRIPT_LIMIT} 次上限，強制輸出 Evidence Package")
+                    session.pending_messages.append(_EVALUATE_SCRIPT_PPI)
+                    force_output_requested = True
 
                 if tool_call_count >= max_tool_calls:
                     force_output_requested = True
