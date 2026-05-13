@@ -134,12 +134,15 @@ class MCPClientManager:
     # Tool 呼叫（async — Copilot / OpenAI adapter 用）
     # ------------------------------------------------------------------
 
-    async def call_tool(self, tool_name: str, args: dict) -> str:
+    async def call_tool(self, tool_name: str, args: dict, timeout: int = 30) -> str:
         info = self._tool_info.get(tool_name)
         if not info:
             return f"❌ MCP tool not found: {tool_name}"
         try:
-            result = await info["session"].call_tool(tool_name, args)
+            result = await asyncio.wait_for(
+                info["session"].call_tool(tool_name, args),
+                timeout=timeout,
+            )
             parts = []
             for content in result.content:
                 if hasattr(content, "text"):
@@ -147,6 +150,8 @@ class MCPClientManager:
                 elif hasattr(content, "data"):
                     parts.append(f"[binary data: {len(content.data)} bytes]")
             return "\n".join(parts) if parts else "(empty response)"
+        except asyncio.TimeoutError:
+            return f"❌ MCP tool timeout ({tool_name})"
         except Exception as e:
             return f"❌ MCP tool error ({tool_name}): {e}"
 
