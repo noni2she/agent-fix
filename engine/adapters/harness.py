@@ -17,6 +17,9 @@ _EVALUATE_SCRIPT_PPI = (
     "reproduce_confidence: <0.0–1.0>"
 )
 
+_BEHAVIOR_VALIDATION_TOOL = "run_behavior_validation"
+_BEHAVIOR_VALIDATION_LIMIT = 3
+
 _READ_FILE_TOOLS = {"read_file"}
 _READ_FILE_MAX_CHARS = 200_000
 _TRUNCATION_SUFFIX = (
@@ -52,6 +55,22 @@ def check_tool_blocked(tool_name: str, session) -> str | None:
         session._evaluate_script_count = count + 1
         if count >= _EVALUATE_SCRIPT_LIMIT:
             return _EVALUATE_SCRIPT_PPI
+
+    # run_behavior_validation: max 3 calls in TEST phase
+    # Prevents using the tool as an exploratory REPL; agent must use view/bash first
+    if (
+        tool_name == _BEHAVIOR_VALIDATION_TOOL
+        and "test" in getattr(session, "harness_phase", "").lower()
+    ):
+        count = getattr(session, "_behavior_validation_count", 0)
+        session._behavior_validation_count = count + 1
+        if count >= _BEHAVIOR_VALIDATION_LIMIT:
+            return (
+                "❌ run_behavior_validation 已達 3 次上限。"
+                "請先用 view/bash 確認頁面結構與 selector，"
+                "整理好完整的 scenario 之後才能繼續呼叫。"
+                "若確認環境限制無法自動化，請直接撰寫報告並標記 SKIPPED。"
+            )
 
     return None
 

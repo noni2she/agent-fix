@@ -187,12 +187,31 @@ def run_behavior_validation(scenario_json: str) -> str:
         scenario_json: JSON 字串，格式：
             {
               "url_path": "/path",
-              "actions": [...],
+              "actions": [
+                {"type": "goto", "value": "/path"},
+                {"type": "click", "selector": "button"},
+                {"type": "wait_for", "selector": ".element"},
+                {"type": "type", "selector": "input", "value": "text"},
+                {"type": "set_files", "selector": "input[type='file']", "files": ["/abs/path/to/file.mp4"]},
+                {"type": "screenshot"}
+              ],
               "assertions": [...]
             }
 
+        action types:
+          goto       — 導航，value = URL path
+          click      — 點擊，selector = CSS selector
+          wait_for   — 等待元素可見，selector = CSS selector
+          type       — 輸入文字，selector + value
+          set_files  — 上傳檔案（繞過 OS file picker），selector = file input CSS selector，
+                       files = 本機絕對路徑列表。適用於需要先上傳才能渲染的元件。
+          screenshot — 截圖
+
     Returns:
         驗證結果摘要字串（PASS / FAIL / SKIPPED + 場景細節）
+
+    注意：此工具上限為 3 次。呼叫前請先用 view/bash 確認 selector 與頁面結構，
+    確定 scenario 正確後再執行。
 
     封裝價值：
     - 從 config 取得 port / workspace / headless / dev_command

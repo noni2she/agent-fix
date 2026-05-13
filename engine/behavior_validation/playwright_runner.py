@@ -135,6 +135,8 @@ class PlaywrightRunner:
                 await self.page.click(action.selector, timeout=action.timeout)
             elif action.type == "type":
                 await self.page.fill(action.selector, action.value, timeout=action.timeout)
+            elif action.type == "set_files":
+                await self.page.locator(action.selector).set_input_files(action.files or [])
             elif action.type == "screenshot":
                 path = await self._screenshot(action.description or "action")
                 return {"success": True, "screenshot": str(path)}

@@ -20,10 +20,12 @@ class ActionStep(BaseModel):
     - wait_for: 等待元素出現
     - type: 在輸入框輸入文字
     - screenshot: 擷取螢幕截圖
+    - set_files: 透過 file input 上傳檔案（繞過 OS file picker）
     """
-    type: Literal["goto", "click", "wait_for", "type", "screenshot"]
+    type: Literal["goto", "click", "wait_for", "type", "screenshot", "set_files"]
     selector: Optional[str] = None   # CSS selector
     value: Optional[str] = None      # 輸入值（用於 type / goto 動作）
+    files: Optional[list[str]] = None  # 檔案路徑列表（用於 set_files 動作）
     timeout: int = 10000             # 超時時間（毫秒）
     description: Optional[str] = None  # 動作描述（用於日誌）
 
@@ -93,10 +95,12 @@ def validate_scenario(scenario: TestScenario) -> tuple[bool, Optional[str]]:
         return False, "場景必須包含至少一個斷言"
 
     for i, action in enumerate(scenario.actions):
-        if action.type in ["click", "wait_for", "type"] and not action.selector:
+        if action.type in ["click", "wait_for", "type", "set_files"] and not action.selector:
             return False, f"動作 {i} ({action.type}) 缺少 selector"
         if action.type == "type" and not action.value:
             return False, f"動作 {i} (type) 缺少 value"
+        if action.type == "set_files" and not action.files:
+            return False, f"動作 {i} (set_files) 缺少 files"
 
     for i, assertion in enumerate(scenario.assertions):
         if assertion.type in ["visible", "text_content", "count"] and not assertion.selector:
