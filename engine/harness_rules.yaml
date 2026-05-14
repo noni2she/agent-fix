@@ -1,0 +1,51 @@
+# Declarative harness rules (phase-aware constraints).
+#
+# Consumed by engine/adapters/harness.py at tool dispatch time.
+# Designed to be runtime-agnostic — a future Claude Agent SDK / Hermes /
+# Plugin adapter can read the same YAML and implement its own enforcement.
+#
+# Rules:
+#   mcp_servers          — only MCP tools from these servers are exposed in the phase
+#                          (replaces _FilteredMCPView wiring in orchestrator.py)
+#   tool_limits          — max calls per phase before the tool is blocked + PPI returned
+#   tool_result_limits   — max chars of tool result; longer responses are truncated
+#   blocked_messages     — message returned when a tool is blocked
+#                          ({tool} placeholder substituted at runtime)
+
+phases:
+  reproduce:
+    mcp_servers: [chrome-devtools]
+    tool_limits:
+      take_screenshot: 1
+      evaluate_script: 5
+    blocked_messages:
+      take_screenshot: |
+        ❌ REPRODUCE 階段 take_screenshot 已達上限（1次）。請改用 take_snapshot
+        （accessibility tree，無 base64 消耗）
+      evaluate_script: |
+        🚨 evaluate_script 已達 5 次上限。立即停止所有工具呼叫，輸出 Evidence Package：
+        observed: <觀察到的實際行為>
+        objective_signals: <console 錯誤 / network 4xx-5xx 等客觀訊號>
+        instability_flags: <若有不穩定跡象列出，否則填 none>
+        reproduce_confidence: <0.0–1.0>
+
+  rca:
+    mcp_servers: [serena]
+    tool_result_limits:
+      read_file: 200000
+
+  test:
+    tool_limits:
+      run_behavior_validation: 3
+    blocked_messages:
+      run_behavior_validation: |
+        ❌ run_behavior_validation 已達 3 次上限。請先用 view/bash 確認頁面結構與
+        selector，整理好完整的 scenario 之後才能繼續呼叫。若確認環境限制無法自動
+        化，請直接撰寫報告並標記 SKIPPED。
+
+# Generic truncation suffix appended to over-limit tool results
+truncation_suffix: |
+
+
+  [TRUNCATED: response exceeded size limit. Use a more specific query or
+  read a subsection.]
