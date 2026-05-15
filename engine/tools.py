@@ -1,18 +1,10 @@
 """
-自訂工具函式庫（Phase 1 plugin refactor 之後僅保留領域邏輯）
+Domain tool implementations — wrapped by the agent-fix MCP server.
 
-提供：
-1. 品質檢查（TypeScript / ESLint）
-2. 行為驗證（Playwright）
-3. 技術債記錄
-4. Orchestrator artifact 工具（read_artifact / checkpoint）
-   — 在 Step 3c-4 會隨 orchestrator.py 一起刪除
-
-Step 3a 移除：
-- read_file / list_directory / search_files / write_file
-  （Claude Code / SDK 內建 Read / Glob / Grep / Write，不需自訂）
-- TOOL_MAP
-  （未來由 MCP server 自行註冊，不需中央表）
+Provides:
+1. Quality checks (TypeScript / ESLint)
+2. Behavior validation (Playwright)
+3. Tech debt recording
 """
 import asyncio
 import json
@@ -34,21 +26,6 @@ _current_issue_id: Optional[str] = None
 _current_project_key: Optional[str] = None
 
 _AGENT_ROOT = Path(__file__).parent.parent.resolve()
-
-# Orchestrator tools context（Step 3c-4 隨 orchestrator 一起刪）
-_orchestrator_context: Optional[dict] = None
-
-
-def init_orchestrator_tools(context: dict):
-    """初始化 Orchestrator 工具 context（read_artifact / checkpoint 用）。"""
-    global _orchestrator_context
-    _orchestrator_context = context
-
-
-def _get_orchestrator_context() -> dict:
-    if _orchestrator_context is None:
-        raise RuntimeError("Orchestrator tools not initialized. Call init_orchestrator_tools() first.")
-    return _orchestrator_context
 
 
 def init_tools(config: ProjectConfig):
@@ -275,32 +252,3 @@ def record_tech_debt(issue_id: str, missing_tests: List[str], reason: str) -> st
         return f"✅ Tech debt recorded for {issue_id} ({len(missing_tests)} items)"
     except Exception as e:
         return f"❌ Error recording tech debt: {str(e)}"
-
-
-# ==========================================
-# Orchestrator artifact 工具（Step 3c-4 隨 orchestrator 一起刪）
-# ==========================================
-
-def read_artifact(issue_id: str, artifact_name: str) -> str:
-    """讀取指定 issue 的 phase 報告（analyze.md、implement.md、test.md 等）。"""
-    ctx = _get_orchestrator_context()
-    report_dir: Path = ctx["report_dir"]
-    path = report_dir / issue_id / artifact_name
-    if not path.exists():
-        return f"(artifact not found: {artifact_name} for issue {issue_id})"
-    return path.read_text(encoding="utf-8")
-
-
-def checkpoint(issue_id: str, message: str) -> str:
-    """記錄 checkpoint，表示需要人類介入才能繼續。"""
-    ctx = _get_orchestrator_context()
-    agent_root: Path = ctx["agent_root"]
-    checkpoint_dir = agent_root / "issues" / "checkpoints"
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    checkpoint_path = checkpoint_dir / f"{issue_id}.md"
-    checkpoint_path.write_text(
-        f"# Checkpoint: {issue_id}\n\n{message}\n",
-        encoding="utf-8",
-    )
-    print(f"\n  🚧 [Orchestrator] Checkpoint saved: {checkpoint_path}")
-    return f"✅ Checkpoint saved for {issue_id}. Human input required before proceeding."
