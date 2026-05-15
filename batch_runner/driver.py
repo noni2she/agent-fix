@@ -2,7 +2,8 @@
 Batch driver — Phase 1 SDK layer
 
 Iterates a list of issues and runs /fix-one-issue <issue_id> for each one
-inside an isolated git worktree, using the Claude Agent SDK.
+inside an isolated git worktree, by invoking the Claude Code CLI as a subprocess.
+This ensures the plugin commands and MCP servers are available.
 
 Usage:
     python -m batch_runner.driver --issues CHATAPP-1,CHATAPP-2
@@ -11,7 +12,6 @@ Usage:
 
 Required env vars:
     PROJECT_CONFIG  — path to project YAML config
-    ANTHROPIC_API_KEY
 
 State file:
     batch_runner/state/<batch_id>.json
@@ -30,15 +30,6 @@ import sys
 import time
 import uuid
 from pathlib import Path
-
-# ---------------------------------------------------------------------------
-# Optional SDK import — fail gracefully so engine/ tests still import
-# ---------------------------------------------------------------------------
-try:
-    import anthropic
-    _SDK_AVAILABLE = True
-except ImportError:
-    _SDK_AVAILABLE = False
 
 
 # ---------------------------------------------------------------------------
@@ -80,25 +71,25 @@ def _mark(state: dict, issue_id: str, status: str, detail: str = "") -> None:
 # Worktree lifecycle
 # ---------------------------------------------------------------------------
 
-def _worktree_add(issue_id: str) -> Path:
-    """Create an isolated git worktree for this issue."""
+def _worktree_add(issue_id: str, project_root: Path) -> Path:
+    """Create an isolated git worktree of the TARGET project for this issue."""
     branch = f"bugfix/{issue_id}-auto"
-    worktree_path = AGENT_ROOT.parent / f"{WORKTREE_PREFIX}-{issue_id}"
+    worktree_path = project_root.parent / f"{WORKTREE_PREFIX}-{issue_id}"
     subprocess.run(
-        ["git", "worktree", "add", "-b", branch, str(worktree_path), "main"],
-        cwd=str(AGENT_ROOT),
+        ["git", "worktree", "add", "-b", branch, str(worktree_path), "HEAD"],
+        cwd=str(project_root),
         check=True,
         capture_output=True,
     )
     return worktree_path
 
 
-def _worktree_remove(worktree_path: Path) -> None:
+def _worktree_remove(worktree_path: Path, project_root: Path) -> None:
     """Remove worktree (best-effort; does not raise on failure)."""
     try:
         subprocess.run(
             ["git", "worktree", "remove", "--force", str(worktree_path)],
-            cwd=str(AGENT_ROOT),
+            cwd=str(project_root),
             check=False,
             capture_output=True,
         )
@@ -110,48 +101,48 @@ def _worktree_remove(worktree_path: Path) -> None:
 # Per-issue session runner
 # ---------------------------------------------------------------------------
 
-async def _run_issue(issue_id: str, project_config: str) -> dict:
+def _run_issue(issue_id: str, project_config: str, worktree_path: Path) -> dict:
     """
-    Run /fix-one-issue <issue_id> for one issue via the Claude Agent SDK.
+    Invoke /fix-one-issue <issue_id> via Claude Code CLI inside the given worktree.
 
-    Returns {"status": "done" | "checkpoint" | "error", "detail": str}
+    --plugin-dir loads the agent-fix plugin (commands + agents).
+    --mcp-config loads the agent-fix MCP server (fetch_issue / quality checks / etc.).
+    Both point at the original agent-fix AGENT_ROOT so the Python venv and engine/
+    are always available regardless of which worktree we're running in.
+
+    Returns {"status": "done" | "checkpoint" | "error" | "unknown", "detail": str}
     """
-    if not _SDK_AVAILABLE:
-        raise RuntimeError(
-            "anthropic package not installed. Run: pip install anthropic"
+    env = {**os.environ, "PROJECT_CONFIG": project_config}
+    cmd = [
+        "claude",
+        "--print",
+        "--dangerously-skip-permissions",
+        "--plugin-dir", str(AGENT_ROOT),
+        "--mcp-config", str(AGENT_ROOT / ".mcp.json"),
+        f"/agent-fix:fix-one-issue {issue_id}",
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(worktree_path),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=1800,  # 30 min ceiling per issue
         )
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "detail": "timed out after 1800s"}
 
-    client = anthropic.Anthropic()
+    output = result.stdout
+    if result.returncode != 0:
+        stderr = (result.stderr or "")[:300]
+        return {"status": "error", "detail": f"exit {result.returncode}: {stderr}"}
 
-    # System prompt: inform Claude Code that this is an automated session
-    system = (
-        f"You are running as an automated batch agent fixing issue {issue_id}.\n"
-        f"PROJECT_CONFIG={project_config}\n"
-        "Do not ask clarifying questions. Execute /fix-one-issue and stop."
-    )
-    user_message = f"/fix-one-issue {issue_id}"
-
-    # Simple single-turn invocation — the /fix-one-issue command orchestrates
-    # multi-phase work via Task tool internally, so we run one agentic loop.
-    messages = [{"role": "user", "content": user_message}]
-    full_response = []
-
-    with client.messages.stream(
-        model="claude-sonnet-4-6",
-        max_tokens=8096,
-        system=system,
-        messages=messages,
-    ) as stream:
-        for text in stream.text_stream:
-            full_response.append(text)
-
-    result_text = "".join(full_response)
-
-    if "CHECKPOINT" in result_text:
-        return {"status": "checkpoint", "detail": result_text[:500]}
-    if "Fix Complete" in result_text:
-        return {"status": "done", "detail": result_text[:500]}
-    return {"status": "unknown", "detail": result_text[:500]}
+    if "CHECKPOINT" in output:
+        return {"status": "checkpoint", "detail": output[-500:]}
+    if "Fix Complete" in output:
+        return {"status": "done", "detail": output[-500:]}
+    return {"status": "unknown", "detail": output[-500:]}
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +152,7 @@ async def _run_issue(issue_id: str, project_config: str) -> dict:
 async def _dispatch_issue(
     issue_id: str,
     project_config: str,
+    project_root: Path,
     state: dict,
     batch_id: str,
 ) -> None:
@@ -175,10 +167,10 @@ async def _dispatch_issue(
     while attempt <= MAX_RETRIES:
         try:
             print(f"  [{issue_id}] attempt {attempt + 1}/{MAX_RETRIES + 1} — creating worktree")
-            worktree_path = _worktree_add(issue_id)
+            worktree_path = _worktree_add(issue_id, project_root)
 
             t0 = time.perf_counter()
-            result = await _run_issue(issue_id, project_config)
+            result = await asyncio.to_thread(_run_issue, issue_id, project_config, worktree_path)
             elapsed = time.perf_counter() - t0
 
             status = result["status"]
@@ -208,7 +200,7 @@ async def _dispatch_issue(
 
         finally:
             if worktree_path:
-                _worktree_remove(worktree_path)
+                _worktree_remove(worktree_path, project_root)
                 worktree_path = None
 
     # Exhausted retries
@@ -223,16 +215,24 @@ async def _dispatch_issue(
 # ---------------------------------------------------------------------------
 
 async def run_batch(issue_ids: list[str], project_config: str, batch_id: str) -> None:
+    # Load config to resolve target project root (used for git worktree isolation)
+    sys.path.insert(0, str(AGENT_ROOT))
+    os.environ["PROJECT_CONFIG"] = project_config
+    from engine.config import load_config_from_env
+    config = load_config_from_env()
+    project_root = config.get_project_root()
+
     state = _load_state(batch_id)
     state.setdefault("started", datetime.datetime.now().isoformat())
     state.setdefault("project_config", project_config)
     _save_state(batch_id, state)
 
     print(f"\n🚀 Batch {batch_id} — {len(issue_ids)} issues")
+    print(f"   Project: {project_root}")
     print(f"   State: {STATE_DIR / batch_id}.json\n")
 
     for issue_id in issue_ids:
-        await _dispatch_issue(issue_id, project_config, state, batch_id)
+        await _dispatch_issue(issue_id, project_config, project_root, state, batch_id)
 
     # Summary
     counts: dict[str, int] = {}
