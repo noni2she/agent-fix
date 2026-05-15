@@ -1,7 +1,12 @@
 """
-Bugfix Workflow Engine v3.1 — Skill-Based + SDK Adapter
+Bugfix Workflow Engine — Phase 1 plugin refactor
+
+剩餘公開 API：
+- Config / IssueSource：被 MCP server 與 SDK driver 共用
+- Tools：被即將寫的 MCP server import
+- Skill loader：暫存（park）狀態，目前無人 import
 """
-__version__ = "3.1.0"
+__version__ = "4.0.0-refactor"
 
 # Config
 from .config import ProjectConfig, load_config_from_env, ConfigurationError, IssueSourceConfig
@@ -17,29 +22,17 @@ from .issue_source import (
     create_adapter,
 )
 
-# Agent Runner
-from .agent_runner import (
-    run_in_session,
-    create_session,
-    create_copilot_session,   # 向後相容別名
-    setup_sdk_error_silencing,
-    ANALYZE_IMPLEMENT_TOOLS,
-    TEST_TOOLS,
-)
-
-# Skill Loader
+# Skill Loader (parked — kept for possible Phase 2/3 reuse)
 from .skill_loader import load_skill
 
-# Tools
-from .tools import init_tools, TOOL_MAP
+# Tools (will be imported by mcp_servers/agent_fix_tools/server.py in Step 3c-1)
+from .tools import init_tools
 
 __all__ = [
-    # Config
     "ProjectConfig",
     "IssueSourceConfig",
     "load_config_from_env",
     "ConfigurationError",
-    # Issue Source
     "IssueSourceAdapter",
     "LocalJsonAdapter",
     "JiraAdapter",
@@ -47,16 +40,6 @@ __all__ = [
     "IssueSourceError",
     "IssueSourceConfigError",
     "create_adapter",
-    # Agent Runner
-    "run_in_session",
-    "create_session",
-    "create_copilot_session",
-    "setup_sdk_error_silencing",
-    "ANALYZE_IMPLEMENT_TOOLS",
-    "TEST_TOOLS",
-    # Skill Loader
     "load_skill",
-    # Tools
     "init_tools",
-    "TOOL_MAP",
 ]

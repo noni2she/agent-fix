@@ -1,50 +1,46 @@
 """
-自訂工具函式庫
+自訂工具函式庫（Phase 1 plugin refactor 之後僅保留領域邏輯）
 
-Copilot SDK 已內建以下工具，不需要自訂：
-- execute (shell/Bash): 任意 shell 指令（含 git 操作）
-- read (Read): 讀取檔案
-- edit (Edit/Write): 編輯/寫入檔案
-- search (Grep/Glob): 文字搜尋 + 檔案搜尋
+提供：
+1. 品質檢查（TypeScript / ESLint）
+2. 行為驗證（Playwright）
+3. 技術債記錄
+4. Orchestrator artifact 工具（read_artifact / checkpoint）
+   — 在 Step 3c-4 會隨 orchestrator.py 一起刪除
 
-本檔案提供：
-1. 業務邏輯工具（品質檢查、行為驗證、技術債）
-2. 檔案系統工具（供 Claude/OpenAI adapter 使用，Copilot 已內建）
+Step 3a 移除：
+- read_file / list_directory / search_files / write_file
+  （Claude Code / SDK 內建 Read / Glob / Grep / Write，不需自訂）
+- TOOL_MAP
+  （未來由 MCP server 自行註冊，不需中央表）
 """
 import asyncio
-import fnmatch
 import json
 import subprocess
 import datetime
 import threading
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from .config import ProjectConfig
 
 
 # ==========================================
-# 全域配置（由 main.py 初始化）
+# 全域配置（由 main.py / MCP server startup 初始化）
 # ==========================================
 
 _project_config: Optional[ProjectConfig] = None
-_current_issue_id: Optional[str] = None    # 由 workflow 在每個 phase 開始前設定
-_current_project_key: Optional[str] = None  # 由 workflow 初始化時設定，用於 issues/ 子目錄隔離
+_current_issue_id: Optional[str] = None
+_current_project_key: Optional[str] = None
 
-# agent 根目錄（tools.py 位於 engine/，往上一層是 agent root）
 _AGENT_ROOT = Path(__file__).parent.parent.resolve()
 
-# Orchestrator tools context（由 BugfixOrchestrator.__init__ 設定）
+# Orchestrator tools context（Step 3c-4 隨 orchestrator 一起刪）
 _orchestrator_context: Optional[dict] = None
 
 
 def init_orchestrator_tools(context: dict):
-    """
-    初始化 Orchestrator 工具 context（由 BugfixOrchestrator.__init__ 呼叫）。
-
-    Args:
-        context: dict with keys: report_dir (Path), agent_root (Path)
-    """
+    """初始化 Orchestrator 工具 context（read_artifact / checkpoint 用）。"""
     global _orchestrator_context
     _orchestrator_context = context
 
@@ -56,12 +52,7 @@ def _get_orchestrator_context() -> dict:
 
 
 def init_tools(config: ProjectConfig):
-    """
-    初始化工具系統（必須在使用工具前呼叫）
-
-    Args:
-        config: 專案配置物件
-    """
+    """初始化工具系統（必須在使用工具前呼叫）"""
     global _project_config, _current_project_key
     _project_config = config
     _current_project_key = config.get_project_key()
@@ -69,34 +60,23 @@ def init_tools(config: ProjectConfig):
 
 
 def set_current_issue_id(issue_id: str):
-    """
-    設定目前正在處理的 issue ID（由 workflow 在每個 phase 開始前呼叫）。
-    確保 run_behavior_validation 的截圖目錄固定使用 issue_id，
-    不受 AI 自訂的 scenario name 影響。
-    """
+    """設定目前正在處理的 issue ID（每個 phase 開始前呼叫）。"""
     global _current_issue_id
     _current_issue_id = issue_id
 
 
 def _get_config() -> ProjectConfig:
-    """取得配置（內部使用）"""
     if _project_config is None:
-        raise RuntimeError(
-            "Tools not initialized. Call init_tools(config) first in main.py"
-        )
+        raise RuntimeError("Tools not initialized. Call init_tools(config) first.")
     return _project_config
 
 
 # ==========================================
-# 品質檢查工具（封裝 config + timeout + 錯誤摘要）
+# 品質檢查工具
 # ==========================================
 
 def run_typescript_check() -> str:
-    """
-    執行 TypeScript 編譯檢查
-
-    封裝價值：從 config 讀取命令、自動 timeout、錯誤摘要（只顯示前 10 個錯誤）
-    """
+    """執行 TypeScript 編譯檢查（封裝 config + timeout + 錯誤摘要）"""
     config = _get_config()
     project_root = config.get_project_root()
 
@@ -106,15 +86,9 @@ def run_typescript_check() -> str:
             return "ℹ️  TypeScript check is disabled in config"
 
         cmd = ts_config.command.split()
-
         result = subprocess.run(
-            cmd,
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-            timeout=120
+            cmd, cwd=str(project_root), capture_output=True, text=True, timeout=120
         )
-
         output = result.stdout + result.stderr
 
         if result.returncode == 0:
@@ -123,7 +97,6 @@ def run_typescript_check() -> str:
             error_lines = [line for line in output.split('\n') if 'error TS' in line]
             error_summary = '\n'.join(error_lines[:10])
             return f"❌ TypeScript check FAILED:\n{error_summary}"
-
     except subprocess.TimeoutExpired:
         return "❌ TIMEOUT: TypeScript check took too long (>120s)"
     except FileNotFoundError as e:
@@ -133,11 +106,7 @@ def run_typescript_check() -> str:
 
 
 def run_eslint() -> str:
-    """
-    執行 ESLint 檢查
-
-    封裝價值：從 config 讀取命令、自動 timeout、warning vs error 判斷
-    """
+    """執行 ESLint 檢查（封裝 config + timeout + warning vs error 判斷）"""
     config = _get_config()
     project_root = config.get_project_root()
 
@@ -147,15 +116,9 @@ def run_eslint() -> str:
             return "ℹ️  ESLint check is disabled in config"
 
         cmd = eslint_config.command.split()
-
         result = subprocess.run(
-            cmd,
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-            timeout=120
+            cmd, cwd=str(project_root), capture_output=True, text=True, timeout=120
         )
-
         output = result.stdout + result.stderr
 
         if "error" not in output.lower() or result.returncode == 0:
@@ -165,7 +128,6 @@ def run_eslint() -> str:
             error_lines = [line for line in output.split('\n') if 'error' in line.lower()]
             error_summary = '\n'.join(error_lines[:10])
             return f"❌ ESLint check FAILED:\n{error_summary}"
-
     except subprocess.TimeoutExpired:
         return "❌ TIMEOUT: ESLint check took too long (>120s)"
     except Exception as e:
@@ -179,9 +141,6 @@ def run_eslint() -> str:
 def run_behavior_validation(scenario_json: str) -> str:
     """
     執行 Playwright 行為驗證
-
-    由 bugfix-test LLM 呼叫：LLM 設計測試場景（JSON），
-    Python 端使用 Playwright 實際執行並回傳結果。
 
     Args:
         scenario_json: JSON 字串，格式：
@@ -198,25 +157,8 @@ def run_behavior_validation(scenario_json: str) -> str:
               "assertions": [...]
             }
 
-        action types:
-          goto       — 導航，value = URL path
-          click      — 點擊，selector = CSS selector
-          wait_for   — 等待元素可見，selector = CSS selector
-          type       — 輸入文字，selector + value
-          set_files  — 上傳檔案（繞過 OS file picker），selector = file input CSS selector，
-                       files = 本機絕對路徑列表。適用於需要先上傳才能渲染的元件。
-          screenshot — 截圖
-
-    Returns:
-        驗證結果摘要字串（PASS / FAIL / SKIPPED + 場景細節）
-
     注意：此工具上限為 3 次。呼叫前請先用 view/bash 確認 selector 與頁面結構，
     確定 scenario 正確後再執行。
-
-    封裝價值：
-    - 從 config 取得 port / workspace / headless / dev_command
-    - 在獨立執行緒開新 event loop 跑 async Playwright（避免干擾主 loop）
-    - 格式化回傳結果給 LLM 繼續使用
     """
     config = _get_config()
     bv_config = config.behavior_validation
@@ -224,32 +166,25 @@ def run_behavior_validation(scenario_json: str) -> str:
     if not bv_config.enabled:
         return "⏭️  行為驗證已停用（behavior_validation.enabled: false）"
 
-    # 解析 scenario JSON
     try:
         scenario_data = json.loads(scenario_json)
     except json.JSONDecodeError as e:
         return f"❌ 無效的 scenario JSON: {e}"
 
-    # 優先使用 workflow 注入的 issue_id（避免 AI 自訂 name 產生 v2/重複目錄）
-    # 優先使用 workflow 注入的 issue_id（避免 AI 自訂 name 產生 v2/重複目錄）
     issue_id = _current_issue_id or scenario_data.get("name", "unknown")
     project_root = config.get_project_root()
 
-    # 截圖目錄：issues/screenshots/<project-key>/<issue-id>/
     screenshot_dir = (
         _AGENT_ROOT / "issues" / "screenshots" / _current_project_key
         if _current_project_key
         else _AGENT_ROOT / "issues" / "screenshots"
     )
 
-    # 從 config.dev_server 取得啟動命令
     dev_command = None
     if config.dev_server and config.dev_server.get("command"):
         raw_cmd = config.dev_server["command"]
         dev_command = raw_cmd.split() if isinstance(raw_cmd, str) else raw_cmd
 
-    # 在新執行緒開獨立 event loop 跑 async Playwright
-    # （不能在現有 loop 中呼叫 asyncio.run()，因此用 thread 隔離）
     result_holder: dict = {}
 
     def _run_in_thread():
@@ -281,7 +216,7 @@ def run_behavior_validation(scenario_json: str) -> str:
     thread.start()
     thread.join(timeout=300)
 
-    if not thread.is_alive() is False:
+    if thread.is_alive():
         return "❌ 行為驗證執行超時（>300s）"
 
     if "error" in result_holder:
@@ -291,7 +226,6 @@ def run_behavior_validation(scenario_json: str) -> str:
     if not report:
         return "❌ 行為驗證未回傳結果"
 
-    # 格式化輸出給 LLM
     verdict_icon = "✅" if report.verdict == "PASS" else ("⏭️" if report.verdict == "SKIPPED" else "❌")
     lines = [
         f"{verdict_icon} 行為驗證: {report.verdict}",
@@ -313,15 +247,11 @@ def run_behavior_validation(scenario_json: str) -> str:
 
 
 # ==========================================
-# 技術債記錄工具（業務邏輯，非通用工具）
+# 技術債記錄工具
 # ==========================================
 
 def record_tech_debt(issue_id: str, missing_tests: List[str], reason: str) -> str:
-    """
-    記錄技術債到 JSON 檔案
-
-    用於追蹤缺少測試的模組
-    """
+    """記錄技術債到 JSON 檔案（追蹤缺少測試的模組）"""
     try:
         debt_file = Path("tech_debt.json")
 
@@ -337,163 +267,22 @@ def record_tech_debt(issue_id: str, missing_tests: List[str], reason: str) -> st
             "missing_tests": missing_tests,
             "reason": reason
         }
-
         debts.append(new_debt)
 
         with open(debt_file, 'w', encoding='utf-8') as f:
             json.dump(debts, f, indent=2, ensure_ascii=False)
 
         return f"✅ Tech debt recorded for {issue_id} ({len(missing_tests)} items)"
-
     except Exception as e:
         return f"❌ Error recording tech debt: {str(e)}"
 
 
 # ==========================================
-# 檔案系統工具（Claude/OpenAI adapter 使用；Copilot SDK 已內建）
-# ==========================================
-
-_MAX_FILE_SIZE = 100 * 1024  # 100KB 讀取上限
-
-
-def read_file(path: str) -> str:
-    """
-    讀取指定路徑的檔案內容
-
-    Args:
-        path: 檔案路徑（絕對或相對路徑）
-
-    Returns:
-        檔案內容字串，或錯誤訊息
-    """
-    try:
-        file_path = Path(path).expanduser().resolve()
-        if not file_path.exists():
-            return f"❌ 檔案不存在: {path}"
-        if not file_path.is_file():
-            return f"❌ 路徑不是檔案: {path}"
-        size = file_path.stat().st_size
-        if size > _MAX_FILE_SIZE:
-            return f"❌ 檔案過大 ({size} bytes)，上限 {_MAX_FILE_SIZE} bytes: {path}"
-        return file_path.read_text(encoding="utf-8", errors="replace")
-    except PermissionError:
-        return f"❌ 無讀取權限: {path}"
-    except Exception as e:
-        return f"❌ 讀取失敗: {e}"
-
-
-def list_directory(path: str) -> str:
-    """
-    列出指定目錄內容
-
-    Args:
-        path: 目錄路徑（絕對或相對路徑）
-
-    Returns:
-        目錄內容列表字串（含 [DIR] / [FILE] 標示），或錯誤訊息
-    """
-    try:
-        dir_path = Path(path).expanduser().resolve()
-        if not dir_path.exists():
-            return f"❌ 路徑不存在: {path}"
-        if not dir_path.is_dir():
-            return f"❌ 路徑不是目錄: {path}"
-
-        entries = []
-        for entry in sorted(dir_path.iterdir()):
-            tag = "[DIR] " if entry.is_dir() else "[FILE]"
-            entries.append(f"{tag} {entry.name}")
-
-        if not entries:
-            return f"（空目錄）{path}"
-        return "\n".join(entries)
-    except PermissionError:
-        return f"❌ 無讀取權限: {path}"
-    except Exception as e:
-        return f"❌ 列出目錄失敗: {e}"
-
-
-def search_files(pattern: str, directory: str = ".", file_glob: str = "*") -> str:
-    """
-    在目錄中搜尋包含指定 pattern 的行
-
-    Args:
-        pattern:    搜尋字串（支援 regex）
-        directory:  搜尋根目錄（預設當前目錄）
-        file_glob:  只搜尋符合此 glob 的檔案（預設 *，例如 *.ts）
-
-    Returns:
-        搜尋結果（格式：檔案路徑:行號: 內容），或錯誤訊息
-    """
-    try:
-        # 優先使用 ripgrep，其次 grep
-        cmd = ["rg", "--line-number", "--glob", file_glob, pattern, directory]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        if result.returncode in (0, 1):  # 1 = no matches
-            output = result.stdout.strip()
-            if not output:
-                return f"（無符合結果）pattern={pattern}, dir={directory}"
-            lines = output.split("\n")
-            if len(lines) > 50:
-                lines = lines[:50]
-                lines.append(f"... (截斷，顯示前 50 筆)")
-            return "\n".join(lines)
-    except FileNotFoundError:
-        pass  # rg 不存在，fallback 到 grep
-    except subprocess.TimeoutExpired:
-        return "❌ 搜尋超時"
-
-    try:
-        cmd = ["grep", "-rn", "--include", file_glob, pattern, directory]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        output = result.stdout.strip()
-        if not output:
-            return f"（無符合結果）pattern={pattern}, dir={directory}"
-        lines = output.split("\n")
-        if len(lines) > 50:
-            lines = lines[:50]
-            lines.append(f"... (截斷，顯示前 50 筆)")
-        return "\n".join(lines)
-    except subprocess.TimeoutExpired:
-        return "❌ 搜尋超時"
-    except Exception as e:
-        return f"❌ 搜尋失敗: {e}"
-
-
-def write_file(path: str, content: str) -> str:
-    """
-    寫入（或建立）檔案
-
-    Args:
-        path:    檔案路徑（絕對或相對路徑）
-        content: 檔案內容
-
-    Returns:
-        成功或錯誤訊息
-    """
-    try:
-        file_path = Path(path).expanduser().resolve()
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(content, encoding="utf-8")
-        return f"✅ 已寫入: {file_path} ({len(content)} bytes)"
-    except PermissionError:
-        return f"❌ 無寫入權限: {path}"
-    except Exception as e:
-        return f"❌ 寫入失敗: {e}"
-
-
-# ==========================================
-# Orchestrator 工具（BugfixOrchestrator LLM Agent 使用）
+# Orchestrator artifact 工具（Step 3c-4 隨 orchestrator 一起刪）
 # ==========================================
 
 def read_artifact(issue_id: str, artifact_name: str) -> str:
-    """
-    讀取指定 issue 的 phase 報告（analyze.md、implement.md、test.md 等）。
-
-    Args:
-        issue_id:      Issue 編號（如 CHATAPP-5389）
-        artifact_name: 報告檔名（如 analyze.md、implement.md、test.md、test-retry-1.md）
-    """
+    """讀取指定 issue 的 phase 報告（analyze.md、implement.md、test.md 等）。"""
     ctx = _get_orchestrator_context()
     report_dir: Path = ctx["report_dir"]
     path = report_dir / issue_id / artifact_name
@@ -503,13 +292,7 @@ def read_artifact(issue_id: str, artifact_name: str) -> str:
 
 
 def checkpoint(issue_id: str, message: str) -> str:
-    """
-    記錄 checkpoint，表示需要人類介入才能繼續。
-
-    Args:
-        issue_id: Issue 編號
-        message:  說明需要人類處理的原因
-    """
+    """記錄 checkpoint，表示需要人類介入才能繼續。"""
     ctx = _get_orchestrator_context()
     agent_root: Path = ctx["agent_root"]
     checkpoint_dir = agent_root / "issues" / "checkpoints"
@@ -521,24 +304,3 @@ def checkpoint(issue_id: str, message: str) -> str:
     )
     print(f"\n  🚧 [Orchestrator] Checkpoint saved: {checkpoint_path}")
     return f"✅ Checkpoint saved for {issue_id}. Human input required before proceeding."
-
-
-# ==========================================
-# 工具映射表
-# ==========================================
-
-TOOL_MAP = {
-    # 業務邏輯工具
-    "run_typescript_check": run_typescript_check,
-    "run_eslint": run_eslint,
-    "run_behavior_validation": run_behavior_validation,
-    "record_tech_debt": record_tech_debt,
-    # Orchestrator 工具
-    "read_artifact": read_artifact,
-    "checkpoint": checkpoint,
-    # 檔案系統工具（Claude/OpenAI adapter 用）
-    "read_file": read_file,
-    "list_directory": list_directory,
-    "search_files": search_files,
-    "write_file": write_file,
-}
