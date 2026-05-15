@@ -4,6 +4,15 @@
       "command": "npx",
       "args": ["-y", "chrome-devtools-mcp@latest"],
       "type": "stdio"
+    },
+    "agent-fix-tools": {
+      "type": "stdio",
+      "command": "/Users/bryce_ni/wit/agent-fix/.venv/bin/python",
+      "args": ["-m", "mcp_servers.agent_fix_tools.server"],
+      "cwd": "/Users/bryce_ni/wit/agent-fix",
+      "env": {
+        "PROJECT_CONFIG": "${PROJECT_CONFIG}"
+      }
     }
   }
 }

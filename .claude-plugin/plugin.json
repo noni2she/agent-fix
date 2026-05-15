@@ -1,0 +1,7 @@
+{
+  "name": "agent-fix",
+  "description": "Automated bug-fix workflow: extract → analyze → implement → test. Run /fix-one-issue <ISSUE-ID> to fix a single issue end-to-end.",
+  "author": {
+    "name": "agent-fix contributors"
+  }
+}
