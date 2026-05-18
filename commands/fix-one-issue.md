@@ -1,22 +1,36 @@
 ---
 description: End-to-end bug fix for a single issue. Runs extract → analyze → implement → test with judge gates between phases. One retry on phase failure.
-argument-hint: <ISSUE-ID>
+argument-hint: <ISSUE-ID> [config-path]
 ---
 
 # Fix One Issue
 
 You are the **Issue Fix Team Lead**. You coordinate the full bug-fix pipeline for a single issue.
 
-**Issue ID**: $ARGUMENTS
+**Arguments**: `$ARGUMENTS`
+
+Parse the arguments:
+- First token = `ISSUE_ID` (e.g. `CHATAPP-5339`)
+- Remaining tokens (optional) = `CONFIG_PATH` (e.g. `projects/morse-webapp/config.yaml`)
 
 Your job is to sequence 4 sub-agents (extract → analyze → implement → test), judge the output at each gate, and decide PROCEED / RETRY / CHECKPOINT. You do NOT read code, write code, or use browser tools yourself.
+
+---
+
+## Pre-flight — Load Config
+
+If `CONFIG_PATH` is present in the arguments:
+→ Call `mcp__agent-fix-tools__set_project_config` with `config_path = CONFIG_PATH`
+→ If result starts with `❌`: output `CHECKPOINT — config error: <error>` and stop immediately.
+
+If `CONFIG_PATH` is absent: proceed. If config was not pre-loaded via env var, the first MCP tool call will surface a clear error at Gate 0.
 
 ---
 
 ## Phase 0 — Extract
 
 ```
-Task("extract", "Fetch issue $ARGUMENTS and return its IssueData JSON.")
+Task("extract", "Fetch issue <ISSUE_ID> and return its IssueData JSON.")
 ```
 
 **Gate 0 — Check extract output:**
@@ -50,7 +64,7 @@ After analyze completes, read `issues/reports/<issue_id>/analyze.md`.
 ## Phase 2 — Implement
 
 ```
-Task("implement", "Implement fix for issue $ARGUMENTS. analyze.md path: issues/reports/$ARGUMENTS/analyze.md")
+Task("implement", "Implement fix for issue <ISSUE_ID>. analyze.md path: issues/reports/<ISSUE_ID>/analyze.md")
 ```
 
 **Gate 2 — Implement quality gate:**
@@ -65,7 +79,7 @@ Read `issues/reports/<issue_id>/implement.md`.
 ## Phase 3 — Test
 
 ```
-Task("test", "Validate fix for issue $ARGUMENTS. analyze.md: issues/reports/$ARGUMENTS/analyze.md  implement.md: issues/reports/$ARGUMENTS/implement.md")
+Task("test", "Validate fix for issue <ISSUE_ID>. analyze.md: issues/reports/<ISSUE_ID>/analyze.md  implement.md: issues/reports/<ISSUE_ID>/implement.md")
 ```
 
 **Gate 3 — Test verdict gate:**
@@ -82,7 +96,7 @@ Read `issues/reports/<issue_id>/test.md`.
 When all gates PROCEED, output a final summary:
 
 ```
-## Fix Complete — $ARGUMENTS
+## Fix Complete — <ISSUE_ID>
 
 - Branch: <from implement.md>
 - Root Cause: <from analyze.md>
@@ -90,9 +104,9 @@ When all gates PROCEED, output a final summary:
 - Modified Files: <from implement.md>
 - Test Result: PASS | SKIPPED
 - Artifacts:
-  - issues/reports/$ARGUMENTS/analyze.md
-  - issues/reports/$ARGUMENTS/implement.md
-  - issues/reports/$ARGUMENTS/test.md
+  - issues/reports/<ISSUE_ID>/analyze.md
+  - issues/reports/<ISSUE_ID>/implement.md
+  - issues/reports/<ISSUE_ID>/test.md
 
 Next step: open a PR from the bugfix branch.
 ```
@@ -104,7 +118,7 @@ Next step: open a PR from the bugfix branch.
 When you output a CHECKPOINT, use this format:
 
 ```
-CHECKPOINT — $ARGUMENTS
+CHECKPOINT — <ISSUE_ID>
 
 Reason: <what happened>
 Last phase: <extract | analyze | implement | test>

@@ -44,7 +44,12 @@ def set_current_issue_id(issue_id: str):
 
 def _get_config() -> ProjectConfig:
     if _project_config is None:
-        raise RuntimeError("Tools not initialized. Call init_tools(config) first.")
+        raise RuntimeError(
+            "No project config loaded.\n"
+            "Call set_project_config(config_path) first, "
+            "or set the PROJECT_CONFIG env var before starting Claude Code.\n"
+            "Example: /agent-fix:fix-one-issue CHATAPP-5339 projects/morse-webapp/config.yaml"
+        )
     return _project_config
 
 

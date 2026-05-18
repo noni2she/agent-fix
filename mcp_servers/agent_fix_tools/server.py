@@ -1,7 +1,8 @@
 """
 agent_fix_tools MCP Server
 
-Exposes 5 domain tools for the agent-fix Claude Code plugin:
+Exposes 6 domain tools for the agent-fix Claude Code plugin:
+  - set_project_config      (call once per session before other tools)
   - fetch_issue             (extract sub-agent)
   - run_behavior_validation (test sub-agent)
   - run_typescript_check    (implement / test sub-agents)
@@ -11,8 +12,9 @@ Exposes 5 domain tools for the agent-fix Claude Code plugin:
 Startup:
     python -m mcp_servers.agent_fix_tools.server
 
-Required env var:
+Optional env var:
     PROJECT_CONFIG  — path to project YAML config (e.g. ./projects/my-app.yaml)
+                      If not set, call set_project_config() before using other tools.
 """
 import sys
 from pathlib import Path
@@ -32,8 +34,43 @@ import engine.tools as _tools
 
 mcp = FastMCP("agent_fix_tools")
 
-_config = load_config_from_env()
-_tools.init_tools(_config)
+# Lazy init — won't crash if PROJECT_CONFIG is not set at startup.
+# Config can be loaded at runtime via set_project_config().
+_config = None
+try:
+    _config = load_config_from_env()
+    _tools.init_tools(_config)
+except Exception:
+    pass  # set_project_config() must be called before other tools
+
+
+# ---------------------------------------------------------------------------
+# Tool: set_project_config
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def set_project_config(config_path: str) -> str:
+    """
+    Dynamically load a project config for this session.
+
+    Call once at the start of a session when PROJECT_CONFIG env var is not set,
+    or when you want to target a specific project config explicitly.
+
+    Args:
+        config_path: Path to the project config YAML file.
+                     Relative to the current working directory, or absolute.
+                     Example: "projects/morse-webapp/config.yaml"
+
+    Returns confirmation with the loaded project name, or an error message.
+    """
+    global _config
+    try:
+        from engine.config import ProjectConfig
+        _config = ProjectConfig.from_yaml(config_path)
+        _tools.init_tools(_config)
+        return f"✅ Config loaded: {_config.project_name} ({config_path})"
+    except Exception as e:
+        return f"❌ set_project_config failed: {e}"
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +91,8 @@ def fetch_issue(issue_id: str) -> str:
     """
     import json
 
+    if _config is None:
+        return "❌ fetch_issue failed: no project config loaded. Call set_project_config(config_path) first."
     try:
         adapter = create_adapter(_config.issue_source)
         data = adapter.fetch(issue_id)
