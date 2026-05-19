@@ -36,6 +36,27 @@ echo "📥 安裝 Python 依賴..."
 uv sync
 echo "✅ Python 依賴安裝完成"
 
+# ── 3.5 更新 .mcp.json 路徑（綁定本機 venv）────────────────────────
+echo ""
+echo "📥 更新 .mcp.json 路徑..."
+AGENT_ROOT="$(pwd)"
+VENV_PYTHON="${AGENT_ROOT}/.venv/bin/python"
+"$VENV_PYTHON" - <<PYEOF
+import json
+
+with open('.mcp.json', 'r') as f:
+    config = json.load(f)
+
+server = config.get('mcpServers', {}).get('agent-fix-tools', {})
+server['command'] = '${VENV_PYTHON}'
+server['cwd']    = '${AGENT_ROOT}'
+
+with open('.mcp.json', 'w') as f:
+    json.dump(config, f, indent=2)
+    f.write('\n')
+PYEOF
+echo "✅ .mcp.json 路徑已更新（${VENV_PYTHON}）"
+
 # ── 4. 安裝全域 agent-fix 指令（batch driver）──────────────────────
 echo ""
 echo "📥 安裝 agent-fix 全域指令..."
