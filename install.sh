@@ -1,178 +1,92 @@
 #!/bin/bash
 set -e
 
-echo "╔════════════════════════════════════════╗"
-echo "║  Agent Fix - 安裝程序                  ║"
-echo "╚════════════════════════════════════════╝"
+echo "╔══════════════════════════════════════════════════════╗"
+echo "║  Agent Fix — 開發者安裝程序                          ║"
+echo "║  一般使用者請改用 claude plugin install agent-fix    ║"
+echo "╚══════════════════════════════════════════════════════╝"
 echo ""
 
-# ── 確認在正確目錄 ──────────────────────────────
+# ── 確認在正確目錄 ──────────────────────────────────────────────────
 if [ ! -f "pyproject.toml" ]; then
     echo "❌ 請在 agent-fix 根目錄執行此腳本"
     exit 1
 fi
 
-# ── 1. 檢查 uv ──────────────────────────────────
+# ── 1. 確認 uv ──────────────────────────────────────────────────────
 if ! command -v uv &> /dev/null; then
     echo "❌ uv 未安裝。請先執行："
-    echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
+    echo "   curl -LsSf https://astral.sh/uv/install.sh | sh"
     exit 1
 fi
-echo "✅ uv: $(uv --version)"
+echo "✅ uv $(uv --version)"
 
-# ── 2. 選擇 SDK ─────────────────────────────────
-echo ""
-echo "請選擇要使用的 AI SDK："
-echo "  1) GitHub Copilot（推薦，需 gh CLI）"
-echo "  2) Anthropic Claude（需 ANTHROPIC_API_KEY）"
-echo "  3) OpenAI Agents（需 OPENAI_API_KEY）"
-echo ""
-read -p "請輸入選項 [1/2/3]（預設 1）: " SDK_CHOICE
-SDK_CHOICE="${SDK_CHOICE:-1}"
-
-case "$SDK_CHOICE" in
-    1)
-        SDK_EXTRA="copilot"
-        SDK_NAME="GitHub Copilot"
-        ;;
-    2)
-        SDK_EXTRA="claude"
-        SDK_NAME="Anthropic Claude"
-        ;;
-    3)
-        SDK_EXTRA="openai"
-        SDK_NAME="OpenAI Agents"
-        ;;
-    *)
-        echo "❌ 無效選項: $SDK_CHOICE"
-        exit 1
-        ;;
-esac
-
-echo "✅ 選擇 SDK: $SDK_NAME"
-
-# ── 3. Copilot 專屬：gh CLI 驗證 ────────────────
-if [ "$SDK_EXTRA" = "copilot" ]; then
-    echo ""
-
-    if ! command -v gh &> /dev/null; then
-        echo "❌ gh CLI 未安裝。請先執行："
-        echo "  brew install gh          # macOS"
-        echo "  winget install GitHub.cli  # Windows"
-        exit 1
-    fi
-    echo "✅ gh CLI: $(gh --version | head -n 1)"
-
-    if ! gh extension list 2>/dev/null | grep -q "gh-copilot"; then
-        echo "⚠️  gh-copilot extension 未安裝"
-        read -p "是否立即安裝? (y/n) " -n 1 -r; echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            gh extension install github/gh-copilot
-            echo "✅ gh-copilot extension 安裝完成"
-        else
-            echo "請手動執行：gh extension install github/gh-copilot"
-            exit 1
-        fi
-    else
-        echo "✅ gh-copilot extension 已安裝"
-    fi
-
-    if ! gh auth status &> /dev/null; then
-        echo "⚠️  尚未登入 GitHub"
-        read -p "是否立即登入? (y/n) " -n 1 -r; echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            gh auth login
-        else
-            echo "請手動執行：gh auth login"
-            exit 1
-        fi
-    fi
-    echo "✅ GitHub 已登入"
+# ── 2. 確認 claude CLI ──────────────────────────────────────────────
+if ! command -v claude &> /dev/null; then
+    echo "❌ claude CLI 未安裝。請先執行："
+    echo "   curl -fsSL https://claude.ai/install.sh | bash"
+    echo "   或: brew install --cask claude-code"
+    exit 1
 fi
+echo "✅ claude $(claude --version 2>/dev/null | head -1)"
 
-# ── 4. Claude / OpenAI：提示 API key ─────────────
-if [ "$SDK_EXTRA" = "claude" ]; then
-    echo ""
-    echo "ℹ️  Anthropic Claude 需要設定環境變數："
-    echo "   export ANTHROPIC_API_KEY=sk-ant-..."
-    echo "   建議寫入 .env 檔案"
-fi
+# ── 3. 安裝 Python 依賴（本地 venv）────────────────────────────────
+echo ""
+echo "📥 安裝 Python 依賴..."
+uv sync
+echo "✅ Python 依賴安裝完成"
 
-if [ "$SDK_EXTRA" = "openai" ]; then
-    echo ""
-    echo "ℹ️  OpenAI Agents 需要設定環境變數："
-    echo "   export OPENAI_API_KEY=sk-..."
-    echo "   建議寫入 .env 檔案"
-fi
+# ── 4. 安裝全域 agent-fix 指令（batch driver）──────────────────────
+echo ""
+echo "📥 安裝 agent-fix 全域指令..."
+uv tool install --editable .
+echo "✅ agent-fix 指令已安裝"
 
-# ── 5. Google Sheets 支援 ────────────────────────
+# ── 5. 安裝 Claude Code plugin（本地開發版）────────────────────────
 echo ""
-read -p "是否安裝 Google Sheets issue source 支援 (y/n)（預設 n）: " -n 1 -r SHEETS_REPLY; echo
-if [[ $SHEETS_REPLY =~ ^[Yy]$ ]]; then
-    INSTALL_EXTRAS="$SDK_EXTRA,sheets"
-    echo "✅ 將安裝 gspread（Google Sheets 支援）"
-else
-    INSTALL_EXTRAS="$SDK_EXTRA"
-fi
+echo "📥 安裝 Claude Code plugin（本地開發版）..."
+claude plugin install .
+echo "✅ Plugin 安裝完成"
 
-# ── 6. ffmpeg（影片附件截圖，選配） ─────────────────
+# ── 6. 安裝 Playwright Chromium ─────────────────────────────────────
 echo ""
-if command -v ffmpeg &> /dev/null; then
-    echo "✅ ffmpeg 已安裝，影片附件截圖功能可用"
-else
-    read -p "是否安裝 ffmpeg 以支援影片附件截圖 (y/n)（預設 n）: " -n 1 -r FFMPEG_REPLY; echo
-    if [[ $FFMPEG_REPLY =~ ^[Yy]$ ]]; then
-        if command -v brew &> /dev/null; then
-            echo "📥 安裝 ffmpeg..."
-            brew install ffmpeg
-        elif command -v apt-get &> /dev/null; then
-            echo "📥 安裝 ffmpeg（sudo apt-get）..."
-            sudo apt-get install -y ffmpeg
-        elif command -v dnf &> /dev/null; then
-            echo "📥 安裝 ffmpeg（sudo dnf）..."
-            sudo dnf install -y ffmpeg
-        else
-            echo "⚠️  無法自動安裝 ffmpeg，請手動安裝："
-            echo "   macOS:  brew install ffmpeg"
-            echo "   Ubuntu: sudo apt-get install ffmpeg"
-            echo "   RHEL:   sudo dnf install ffmpeg"
-        fi
-    else
-        echo "⏭️  略過 ffmpeg（可稍後手動安裝：brew install ffmpeg）"
-    fi
-fi
+echo "📥 安裝 Playwright Chromium（行為驗證用）..."
+uv run playwright install chromium
+echo "✅ Playwright Chromium 安裝完成"
 
-# ── 7. 全域安裝 ──────────────────────────────────
+# ── 完成 ─────────────────────────────────────────────────────────────
 echo ""
-echo "📥 安裝 agent-fix（SDK: $SDK_NAME）..."
-uv tool install --editable ".[$INSTALL_EXTRAS]" --python python3.13
-
-# ── 8. 驗證安裝 ──────────────────────────────────
+echo "═══════════════════════════════════════════════════════════════"
+echo "✅ 開發環境安裝完成！"
 echo ""
-if command -v agent-fix &> /dev/null; then
-    echo "✅ 安裝完成！已可使用："
-    echo "   agent-fix --help"
-    echo "   afix --help"
-else
-    echo "⚠️  指令未出現在 PATH，請確認 ~/.local/bin 已加入 PATH："
-    echo "   echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc"
-    echo "   source ~/.zshrc"
-fi
-
+echo "設定步驟："
 echo ""
-echo "═══════════════════════════════════════════"
-echo "初始化專案配置："
-echo "  agent-fix init /path/to/project"
-echo "  agent-fix init /path/to/project --issue-prefix PROJ"
-echo "  → 自動產出 projects/<slug>/config.yaml"
+echo "  1. 複製並填寫專案配置："
+echo "     cp config-template.yaml projects/<slug>/config.yaml"
 echo ""
-echo "執行 Bug 修復："
-echo "  agent-fix run  PROJ-001 --config projects/myproject/config.yaml"
-echo "  agent-fix batch         --config projects/myproject/config.yaml"
-echo "  agent-fix batch         --config projects/myproject/config.yaml --dry-run"
-echo "  agent-fix batch         --config projects/myproject/config.yaml --filter 'PROJ-*'"
+echo "  2. （Jira 用戶）設定環境變數（可寫入 .env）："
+echo "     JIRA_BASE_URL=https://your-company.atlassian.net"
+echo "     JIRA_USER_EMAIL=your@email.com"
+echo "     JIRA_API_TOKEN=..."
 echo ""
-echo "多專案（每個專案帶 --config 即可）："
-echo "  agent-fix run PROJ-A-001 --config projects/proj-a/config.yaml"
-echo "  agent-fix run PROJ-B-001 --config projects/proj-b/config.yaml"
-echo "═══════════════════════════════════════════"
+echo "  3. （行為驗證用戶）設定測試帳號："
+echo "     TEST_USERNAME=..."
+echo "     TEST_PASSWORD=..."
+echo ""
+echo "使用方式："
+echo ""
+echo "  Plugin mode（在 Claude Code 裡）："
+echo "    /agent-fix:fix-one-issue CHATAPP-5339 projects/<slug>/config.yaml"
+echo "    ↑ 第一次帶 config path，同 session 後續不需要再帶"
+echo ""
+echo "  Batch mode（Terminal）："
+echo "    export PROJECT_CONFIG=./projects/<slug>/config.yaml"
+echo "    agent-fix --issues CHATAPP-5339"
+echo "    agent-fix --issues CHATAPP-5339,CHATAPP-5340,CHATAPP-5341"
+echo "    agent-fix --issues-file issues.txt"
+echo "    agent-fix --source jira --jql \"project = CHATAPP AND status = 'To Do'\""
+echo ""
+echo "⚠️  注意：這是開發者安裝版（本地 clone）。"
+echo "   一般使用者請改用 PyPI 套件版（待發布）："
+echo "   claude plugin install agent-fix@noni2she/agent-fix"
+echo "═══════════════════════════════════════════════════════════════"

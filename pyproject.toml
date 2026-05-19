@@ -1,7 +1,7 @@
 [project]
 name = "agent-fix"
-version = "3.1.0"
-description = "通用 AI 問題分析與修復代理引擎 — Skill-Based，支援 Copilot / Claude / OpenAI SDK"
+version = "4.0.0"
+description = "Claude Code plugin for automated bug fixing: extract → analyze → implement → test"
 readme = "README.md"
 requires-python = ">=3.13"
 license = {text = "MIT"}
@@ -10,31 +10,17 @@ authors = [
 ]
 
 dependencies = [
-    "pydantic>=2.12.5",        # config.py 使用 Pydantic 驗證 YAML 配置
+    "pydantic>=2.12.5",        # config.py — YAML 配置驗證
     "python-dotenv>=1.2.1",
     "pyyaml>=6.0",
     "requests>=2.32.5",
-    "click>=8.1.0",            # CLI 工具
-    "playwright>=1.40.0",      # behavior_validation Phase 4 瀏覽器自動化
-    "mcp>=1.0.0",
+    "playwright>=1.40.0",      # behavior_validation — Playwright E2E
+    "mcp>=1.0.0",              # MCP server (FastMCP)
 ]
 
 [project.optional-dependencies]
-# 選擇其中一個 SDK 安裝即可
-copilot = ["github-copilot-sdk>=0.1.20"]
-claude  = ["anthropic>=0.40.0"]
-openai  = ["openai-agents>=0.0.3"]
-
 # Issue source 擴充
 sheets = ["gspread>=6.0.0"]
-
-# 安裝全部（開發/測試用）
-all = [
-    "github-copilot-sdk>=0.1.20",
-    "anthropic>=0.40.0",
-    "openai-agents>=0.0.3",
-    "gspread>=6.0.0",
-]
 
 dev = [
     "pytest>=8.0.0",
@@ -44,20 +30,14 @@ dev = [
 ]
 
 [project.scripts]
-agent-fix = "cli:main"
-afix = "cli:main"
+agent-fix = "batch_runner.driver:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-# 包含 engine 套件、cli.py 入口、以及 skills/ 目錄
-packages = ["engine"]
-include = [
-    "cli.py",
-    "skills/**",
-]
+packages = ["engine", "batch_runner", "mcp_servers"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

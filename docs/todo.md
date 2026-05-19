@@ -1,6 +1,6 @@
 # Agent Fix — 發展路線
 
-> 最後更新：2026-05-11
+> 最後更新：2026-05-19
 
 ## 專案定位
 
@@ -44,6 +44,36 @@
 - [x] `GoogleSheetsAdapter` — 純記憶體快取，讀取 Sheet → 直接交 batch runner
 - [x] `gspread` 為 optional `sheets` extra
 - [x] `JiraAdapter.list_all()` — JQL query（jql_base + --filter AND 串接，支援分頁）
+
+## 🔴 重點 TODO：PyPI 打包（agent-fix 對外發布前必做）
+
+> **背景**：目前 agent-fix 需要 `git clone` + `install.sh` 才能使用，這違反 Claude Code plugin 的標準分發模式。
+> 正確做法是把 MCP server 打包成 PyPI 套件，讓 `.mcp.json` 改用 `uvx agent-fix-tools` 自動拉取，
+> 使用者只需 `claude plugin install agent-fix@noni2she/agent-fix`，完全不需要 clone repo。
+
+### 需要做的事
+
+- [ ] **把 MCP server + engine 打包成 PyPI 套件** (`agent-fix-tools`)
+  - 套件入口：`mcp_servers.agent_fix_tools.server`
+  - 包含：`engine/`、`mcp_servers/`、所有依賴
+  - 發布到 PyPI（或先發布到 TestPyPI 驗證）
+
+- [ ] **`.mcp.json` 改用 `uvx`**
+  ```json
+  "agent-fix-tools": {
+    "command": "uvx",
+    "args": ["agent-fix-tools"],
+    "env": { "PROJECT_CONFIG": "${PROJECT_CONFIG}" }
+  }
+  ```
+
+- [ ] **加 `.claude-plugin/marketplace.json`**
+  讓使用者可以 `claude plugin install agent-fix@noni2she/agent-fix` 一行安裝
+
+- [ ] **install.sh 改為純開發者用途**
+  一般使用者完全不需要跑，只有貢獻 agent-fix 開發的人才需要
+
+---
 
 ## 階段 5：Orchestrator-Worker 架構（🔴 最高優先，下一個大方向）
 
